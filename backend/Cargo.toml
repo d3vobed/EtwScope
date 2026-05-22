@@ -1,0 +1,13 @@
+[package]
+name = "etwscope_backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { version = "4.4", features = ["derive"] }
+chrono = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+# Future ETW bindings (e.g., ferrisetw, tracelog) would go here

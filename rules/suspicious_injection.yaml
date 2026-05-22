@@ -1,0 +1,6 @@
+title: Suspicious Process Injection Sequence
+provider: Microsoft-Windows-Kernel-Audit-API-Calls
+match:
+  - EventID(5)
+  - EventID(6)
+severity: high

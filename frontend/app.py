@@ -1,7 +1,7 @@
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, Horizontal
 from textual.widgets import Header, Footer
-from .widgets import DashboardHeader, EventLog, AlertLog, ExecutionTree
+from .widgets import DashboardHeader, EventLog, AlertLog, ExecutionTree, EvasionAnalysis, VisibilityScore
 from analysis.metrics import MetricsEngine
 from analysis.trs import TRSEngine
 from analysis.engine import RuleEngine
@@ -20,6 +20,10 @@ class ETWScopeApp(App):
     .panel {
         border: round #555;
         height: 100%;
+    }
+    #visibility {
+        height: 6;
+        border: round #555;
     }
     """
 
@@ -41,7 +45,9 @@ class ETWScopeApp(App):
             yield EventLog(id="events", classes="panel")
             with Vertical():
                 yield ExecutionTree(id="exec_tree", classes="panel")
+                yield EvasionAnalysis(id="evasion", classes="panel")
                 yield AlertLog(id="alerts", classes="panel")
+                yield VisibilityScore(id="visibility")
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -58,6 +64,8 @@ class ETWScopeApp(App):
         alerts_log = self.query_one("#alerts", AlertLog)
         exec_tree = self.query_one("#exec_tree", ExecutionTree)
         header = self.query_one("#header", DashboardHeader)
+        evasion_log = self.query_one("#evasion", EvasionAnalysis)
+        vis_score = self.query_one("#visibility", VisibilityScore)
 
         while True:
             line = await self.process.stdout.readline()
@@ -71,6 +79,7 @@ class ETWScopeApp(App):
                 trs = self.trs_engine.compute(metrics)
                 
                 header.update_metrics(metrics["F"], metrics["H"], metrics["CV_t"], trs, metrics["total"])
+                vis_score.update_score(trs)
                 
                 # Log event
                 events_log.write_line(f"[{event.get('provider_name')}] PID:{event.get('pid')} {event.get('event_name')}")
@@ -82,6 +91,14 @@ class ETWScopeApp(App):
                     event_name=event.get("event_name"),
                     provider=event.get("provider_name")
                 )
+                
+                # Simple Evasion Heuristic
+                provider = event.get("provider_name", "")
+                if "Kernel-Audit-API-Calls" in provider:
+                    evasion_log.log_evasion(f"[⚠️ SYSCALL DETECTED] PID:{event.get('pid')} used Direct/Indirect Syscall (Bypassed NTDLL hook)")
+                elif "Kernel-Process" in provider:
+                    # In a real scenario, correlated with User-mode API events
+                    pass
                 
                 # Check rules
                 alerts = self.rule_engine.evaluate(event)

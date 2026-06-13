@@ -17,6 +17,30 @@ class AlertLog(Log):
         super().__init__(*args, **kwargs)
         self.max_lines = 500
 
+class EvasionAnalysis(Log):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.max_lines = 100
+        self.write_line("[*] Evasion Analysis Engine Started")
+
+class VisibilityScore(Static):
+    def update_score(self, trs: float):
+        visibility = min(trs * 100, 100.0)
+        status = "Optimal Visibility"
+        if visibility < 80:
+            status = "Decay Present (Asymptotic Floor Reached)"
+        if visibility < 50:
+            status = "Critical EDR Blindspot"
+            
+        bar_len = int(visibility / 5)
+        bar = "█" * bar_len + "░" * (20 - bar_len)
+        
+        content = f"🛡️ Simulated EDR Visibility (Defender/Falcon)\n"
+        content += f"Visibility Score: {visibility:.1f}% | {bar}\n"
+        content += f"Status: {status}\n"
+        content += f"Mathematical Decay Model (DDF) Active."
+        self.update(content)
+
 class ExecutionTree(Tree):
     def __init__(self, *args, **kwargs):
         super().__init__("System Execution Flow", *args, **kwargs)

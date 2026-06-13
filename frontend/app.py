@@ -1,7 +1,7 @@
 from textual.app import App, ComposeResult
 from textual.containers import Vertical, Horizontal
 from textual.widgets import Header, Footer
-from .widgets import DashboardHeader, EventLog, AlertLog
+from .widgets import DashboardHeader, EventLog, AlertLog, ExecutionTree
 from analysis.metrics import MetricsEngine
 from analysis.trs import TRSEngine
 from analysis.engine import RuleEngine
@@ -39,7 +39,9 @@ class ETWScopeApp(App):
         yield DashboardHeader(id="header")
         with Horizontal():
             yield EventLog(id="events", classes="panel")
-            yield AlertLog(id="alerts", classes="panel")
+            with Vertical():
+                yield ExecutionTree(id="exec_tree", classes="panel")
+                yield AlertLog(id="alerts", classes="panel")
         yield Footer()
 
     async def on_mount(self) -> None:
@@ -54,6 +56,7 @@ class ETWScopeApp(App):
         
         events_log = self.query_one("#events", EventLog)
         alerts_log = self.query_one("#alerts", AlertLog)
+        exec_tree = self.query_one("#exec_tree", ExecutionTree)
         header = self.query_one("#header", DashboardHeader)
 
         while True:
@@ -71,6 +74,14 @@ class ETWScopeApp(App):
                 
                 # Log event
                 events_log.write_line(f"[{event.get('provider_name')}] PID:{event.get('pid')} {event.get('event_name')}")
+                
+                # Add to Execution Tree
+                exec_tree.add_event(
+                    pid=event.get("pid"),
+                    tid=event.get("tid"),
+                    event_name=event.get("event_name"),
+                    provider=event.get("provider_name")
+                )
                 
                 # Check rules
                 alerts = self.rule_engine.evaluate(event)

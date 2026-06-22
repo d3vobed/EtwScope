@@ -207,21 +207,23 @@ class MonitorHeader(Static):
 
     def update_live(self, trs: float, vis: float, rate: float, phase: str,
                     total: int, suspicious: int, critical: int):
-        if phase == "BASELINE":
-            phase_icon = "🔵 BASELINE"
+        if phase == "LEARNING BASELINE":
+            self.update(
+                f"[bold blue][ STATUS: {phase} ][/bold blue] | "
+                f"Rate: {rate}/s | "
+                f"Events: {total} | "
+                f"[italic]Press SPACEBAR to start Active Capture[/italic]"
+            )
         else:
-            phase_icon = "🟢 MONITORING"
-
-        trs_color = "green" if trs > 0.8 else "yellow" if trs > 0.5 else "red"
-
-        self.update(
-            f"🛡️  ETWScope Live Monitor | {phase_icon} | "
-            f"TRS: [{trs_color}]{trs:.4f}[/{trs_color}] | "
-            f"Visibility: {vis:.1f}% | "
-            f"Events: {total} ({rate:.0f}/s) | "
-            f"⚠ Suspicious: [yellow]{suspicious}[/yellow] | "
-            f"🔴 Critical: [red]{critical}[/red]"
-        )
+            trs_color = "green" if trs > 0.8 else "yellow" if trs > 0.5 else "red"
+            self.update(
+                f"[bold green][ STATUS: {phase} ][/bold green] | "
+                f"TRS: [{trs_color}]{trs:.4f}[/{trs_color}] ({vis:.1f}%) | "
+                f"Rate: {rate}/s | "
+                f"Events: {total} | "
+                f"[yellow]Suspicious: {suspicious}[/yellow] | "
+                f"[red]Critical: {critical}[/red]"
+            )
 
 
 class LiveTelemetryGrid(DataTable):
@@ -276,6 +278,7 @@ class LiveTelemetryGrid(DataTable):
             "info":       "[cyan]◆[/cyan]",
             "suspicious": "[yellow]▲[/yellow]",
             "critical":   "[red bold]⬤[/red bold]",
+            "baseline":   "[blue]~[/blue]",
         }.get(risk, "●")
 
         name_styled = f"[{color}]{event_name}[/{color}]"

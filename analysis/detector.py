@@ -64,8 +64,7 @@ class LiveDetector:
     RISK_SUSPICIOUS = ("suspicious", "yellow",  "")
     RISK_CRITICAL   = ("critical",   "red",     "")
 
-    def __init__(self, baseline_window_seconds: int = 15):
-        self.baseline_window = baseline_window_seconds
+    def __init__(self):
         self.start_time: Optional[float] = None
         self.baseline_established = False
 
@@ -111,23 +110,20 @@ class LiveDetector:
         self._detection_window.append((now, event))
 
         # Phase 1: Baseline collection
-        elapsed = now - self.start_time
         if not self.baseline_established:
             self._baseline_events.append(event)
-            if elapsed >= self.baseline_window:
-                self._establish_baseline()
-            # During baseline, still flag obviously suspicious events
-            return self._check_static_signatures(event_name, provider, pid, now)
+            return ("baseline", "blue", "[LEARNING] Background noise profile")
 
         # Phase 2: Active detection
         return self._detect_anomaly(event, event_name, provider, pid, now)
 
-    def _establish_baseline(self):
-        """Compute the baseline profile from collected events."""
+    def trigger_active_capture(self):
+        """Manually establish the baseline and switch to active detection mode."""
         self.baseline_established = True
-        duration = self.baseline_window
+        now = time.time()
+        duration = now - self.start_time if self.start_time else 1.0
         if duration <= 0:
-            duration = 1
+            duration = 1.0
 
         # Compute per-event-type rates
         counts = Counter(e.get("event_name", "Unknown") for e in self._baseline_events)
@@ -244,10 +240,8 @@ class LiveDetector:
                 "visibility_pct": 100.0,
                 "event_rate": event_rate,
                 "anomaly_rate": 0.0,
-                "phase": "BASELINE",
-                "baseline_progress": min(
-                    (now - self.start_time) / self.baseline_window * 100, 100
-                ) if self.start_time else 0,
+                "phase": "LEARNING BASELINE",
+                "baseline_progress": 0,
             }
 
         # Compare current event distribution to baseline

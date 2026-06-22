@@ -305,6 +305,7 @@ class ETWScopeMonitorApp(App):
         ("1", "inject_payload_1", "Inject I1 (Direct Syscall)"),
         ("2", "inject_payload_2", "Inject I2 (Dynamic SSN)"),
         ("3", "inject_payload_3", "Inject I3 (HWBP)"),
+        ("space", "toggle_capture", "Start Active Capture"),
     ]
 
     CSS = """
@@ -356,7 +357,7 @@ class ETWScopeMonitorApp(App):
         self.payload_i1 = payload_i1
         self.payload_i2 = payload_i2
         self.payload_i3 = payload_i3
-        self.detector = LiveDetector(baseline_window_seconds=15)
+        self.detector = LiveDetector()
         self._all_events_raw = []
         self._filter_term = ""
 
@@ -374,6 +375,13 @@ class ETWScopeMonitorApp(App):
             yield VisibilityScore(id="visibility")
             yield EvasionAnalysis(id="log_panel")
         yield Footer()
+
+    async def action_toggle_capture(self) -> None:
+        if not self.detector.baseline_established:
+            self.detector.trigger_active_capture()
+            log_panel = self.query_one("#log_panel", EvasionAnalysis)
+            log_panel.write_line("\n[bold green]✓ BASELINE LOCKED. ACTIVE CAPTURE STARTED.[/bold green]")
+            log_panel.write_line("   -> Now analyzing events for evasion anomalies...")
 
     async def action_inject_payload_1(self) -> None:
         await self._trigger_payload(self.payload_i1, "Intensity 1 (Direct Syscall)")
@@ -472,8 +480,9 @@ class ETWScopeMonitorApp(App):
 
         log_panel.write_line("[*] Waiting 5 seconds for ETW session to initialize...")
         await asyncio.sleep(5)
-        log_panel.write_line("[✓] Live capture started. Streaming events...")
-        log_panel.write_line("[*] Building baseline profile (first 15 seconds)...")
+        log_panel.write_line("\n[bold blue][✓] Live capture started. LEARNING BASELINE...[/bold blue]")
+        log_panel.write_line("[*] Let the system run normally to build a profile.")
+        log_panel.write_line("[*] [italic]Press SPACEBAR when ready to start Active Capture.[/italic]")
 
         # Tail the JSON file for new events
         from analysis.metrics import _normalise_event
@@ -564,11 +573,7 @@ class ETWScopeMonitorApp(App):
                     )
                     vis_score.update_score(trs_data["trs"])
 
-                    # Log phase transition
-                    if trs_data["phase"] == "MONITORING" and update_counter == 5:
-                        log_panel.write_line(
-                            "[✓] Baseline established. Now detecting anomalies..."
-                        )
+                    # Log phase transition (No longer needed automatically, handled by Spacebar)
 
                 await asyncio.sleep(0.5)  # Poll every 500ms
 

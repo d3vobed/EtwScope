@@ -378,10 +378,15 @@ class ETWScopeMonitorApp(App):
 
     async def action_toggle_capture(self) -> None:
         if not self.detector.baseline_established:
-            self.detector.trigger_active_capture()
+            warning = self.detector.trigger_active_capture()
             log_panel = self.query_one("#log_panel", EvasionAnalysis)
-            log_panel.write_line("\n[bold green]✓ BASELINE LOCKED. ACTIVE CAPTURE STARTED.[/bold green]")
-            log_panel.write_line("   -> Now analyzing events for evasion anomalies...")
+            if warning:
+                log_panel.write_line("\n[bold red]⚠ WARNING: BASELINE APPEARS POISONED![/bold red]")
+                log_panel.write_line(f"[bold red]   -> {warning}[/bold red]")
+                log_panel.write_line("[bold yellow]   -> Proceeding with active capture, but results may be skewed.[/bold yellow]")
+            else:
+                log_panel.write_line("\n[bold green]✓ BASELINE LOCKED. ACTIVE CAPTURE STARTED.[/bold green]")
+                log_panel.write_line("   -> Now analyzing events for evasion anomalies...")
 
     async def action_inject_payload_1(self) -> None:
         await self._trigger_payload(self.payload_i1, "Intensity 1 (Direct Syscall)")

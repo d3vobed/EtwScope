@@ -67,6 +67,7 @@ class LiveDetector:
     def __init__(self):
         self.start_time: Optional[float] = None
         self.baseline_established = False
+        self.baseline_poisoned = False
 
         # Baseline profile
         self._baseline_events: List[Dict] = []
@@ -117,8 +118,10 @@ class LiveDetector:
         # Phase 2: Active detection
         return self._detect_anomaly(event, event_name, provider, pid, now)
 
-    def trigger_active_capture(self):
-        """Manually establish the baseline and switch to active detection mode."""
+    def trigger_active_capture(self) -> Optional[str]:
+        """Manually establish the baseline and switch to active detection mode.
+        Returns a warning string if the baseline appears poisoned, else None.
+        """
         self.baseline_established = True
         now = time.time()
         duration = now - self.start_time if self.start_time else 1.0
@@ -129,12 +132,24 @@ class LiveDetector:
         counts = Counter(e.get("event_name", "Unknown") for e in self._baseline_events)
         self._baseline_rates = {name: count / duration for name, count in counts.items()}
         self._baseline_total_rate = len(self._baseline_events) / duration
+        self._baseline_entropy = self._compute_entropy(counts)
 
-        # Track baseline PIDs
+        # Track baseline PIDs and check for poisoning
+        poison_count = 0
         for e in self._baseline_events:
             pid = e.get("pid")
+            name = e.get("event_name", "")
             if pid:
                 self._known_pids.add(pid)
+            if name in INJECTION_INDICATORS or name in SUSPICIOUS_SYSCALLS:
+                poison_count += 1
+
+        if poison_count > 0 and len(self._baseline_events) > 0:
+            poison_ratio = poison_count / len(self._baseline_events)
+            if poison_ratio > 0.05 or poison_count > 50:
+                self.baseline_poisoned = True
+                return f"Found {poison_count} highly suspicious events in the baseline. Malware may already be active."
+        return None
 
     def _check_static_signatures(self, event_name: str, provider: str,
                                   pid: str, now: float) -> Tuple[str, str, str]:
@@ -208,6 +223,23 @@ class LiveDetector:
             self.suspicious_count += 1
             return ("suspicious", "yellow",
                     f"⚠ New event type (not in baseline): {event_name}")
+
+        # 4.5. Telemetry Spoofing / Padding Detection
+        # If the total event volume is suddenly higher than baseline, 
+        # but the entropy has dropped significantly, it indicates padding.
+        if hasattr(self, '_baseline_entropy') and self._baseline_total_rate > 0:
+            recent_events = [e for t, e in self._detection_window if now - t < 3.0]
+            if recent_events:
+                current_total_rate = len(recent_events) / 3.0
+                vol_ratio = current_total_rate / self._baseline_total_rate
+                
+                recent_counts = Counter(e.get("event_name", "Unknown") for e in recent_events)
+                current_entropy = self._compute_entropy(recent_counts)
+                ent_ratio = current_entropy / self._baseline_entropy if self._baseline_entropy > 0 else 1.0
+                
+                if vol_ratio > 1.2 and ent_ratio < 0.6:
+                    self.critical_count += 1
+                    return ("critical", "red", "🔴 Telemetry Spoofing / Event Padding Detected")
 
         # 5. Standard injection indicator check
         if event_name in INJECTION_INDICATORS:

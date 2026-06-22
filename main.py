@@ -40,13 +40,24 @@ def run_live(args):
 
 
 def run_analyze(args):
-    """Launch TUI in analysis mode showing baseline vs mutated comparison."""
+    """Launch TUI in analysis mode. If payload is provided, runs the orchestrator lifecycle first."""
+    
+    # If payload is provided, this triggers the Orchestrator within the TUI
+    if hasattr(args, 'payload') and args.payload:
+        args.mutated = args.out
+        if hasattr(args, 'target_pid') and args.target_pid:
+            args.pid = args.target_pid
+        orchestrator_args = args
+    else:
+        orchestrator_args = None
+
     from frontend.app import ETWScopeAnalyzeApp
     app = ETWScopeAnalyzeApp(
         baseline_path=args.baseline,
         mutated_path=args.mutated,
         pid_filter=args.pid,
         provider_filter=args.provider,
+        orchestrator_args=orchestrator_args
     )
     app.run()
 
@@ -183,20 +194,7 @@ def run_batch(args):
         })
 
 
-def run_orchestrator_mode(args):
-    """Run the automated capture -> inject -> measure workflow directly inside the TUI."""
-    args.mutated = args.out  # set the output file as mutated
-    args.pid = args.target_pid  # Pass the target_pid to the pid filter
-    
-    from frontend.app import ETWScopeAnalyzeApp
-    app = ETWScopeAnalyzeApp(
-        baseline_path=args.baseline,
-        mutated_path=args.mutated,
-        pid_filter=args.pid,
-        provider_filter=args.provider,
-        orchestrator_args=args
-    )
-    app.run()
+
 
 
 def main():
@@ -213,12 +211,18 @@ def main():
     live_p.add_argument("--backend", default="backend/target/release/etwscope_backend",
                         help="Path to rust backend executable")
 
-    # Analyze mode (TUI with diff)
-    analyze_p = subparsers.add_parser("analyze", help="TUI analysis of baseline vs mutated")
+    # Analyze mode (Unified TUI: Static Diff OR Automated Execution)
+    analyze_p = subparsers.add_parser("analyze", help="TUI analysis of baseline vs mutated (or dynamic execution)")
     analyze_p.add_argument("baseline", help="Path to baseline ETW JSON log")
-    analyze_p.add_argument("mutated", help="Path to mutated ETW JSON log")
+    analyze_p.add_argument("mutated", nargs='?', help="Path to mutated ETW JSON log (optional if running payload)")
     analyze_p.add_argument("--pid", help="Filter by Process ID")
     analyze_p.add_argument("--provider", help="Filter by ETW provider name")
+    
+    # Optional parameters to trigger the automated capture -> inject -> measure lifecycle
+    analyze_p.add_argument("--payload", help="Path to the mutated payload exe to run")
+    analyze_p.add_argument("--silketw", help="Path to SilkETW.exe (required if payload is set)")
+    analyze_p.add_argument("--out", help="Path to output the generated JSON (required if payload is set)")
+    analyze_p.add_argument("--target-pid", help="Target PID to pass to payload (optional)")
 
     # Diff mode (headless)
     diff_p = subparsers.add_parser("diff", help="Headless diff with TRS computation")
@@ -245,20 +249,6 @@ def main():
     batch_p.add_argument("--w2", type=float, default=0.35, help="TRS entropy weight")
     batch_p.add_argument("--w3", type=float, default=0.20, help="TRS timing weight")
 
-    # Orchestrator / Test Runner mode
-    run_p = subparsers.add_parser("run-test", help="Automated Orchestrator (Capture -> Inject -> Measure)")
-    run_p.add_argument("--silketw", required=True, help="Path to SilkETW.exe")
-    run_p.add_argument("--provider", required=True, help="ETW Provider Name (e.g. Microsoft-Windows-Kernel-Process)")
-    run_p.add_argument("--payload", required=True, help="Path to the mutated payload exe to run")
-    run_p.add_argument("--target-pid", help="Target PID to pass to payload (optional)")
-    run_p.add_argument("--baseline", required=True, help="Path to baseline JSON for comparison")
-    run_p.add_argument("--out", required=True, help="Path to output the generated JSON")
-    run_p.add_argument("--export", help="Export results to CSV file")
-    run_p.add_argument("--json-out", help="Export full report to JSON")
-    run_p.add_argument("--w1", type=float, default=0.45, help="TRS volume weight")
-    run_p.add_argument("--w2", type=float, default=0.35, help="TRS entropy weight")
-    run_p.add_argument("--w3", type=float, default=0.20, help="TRS timing weight")
-
     args = parser.parse_args()
 
     if args.mode == "live":
@@ -269,8 +259,6 @@ def main():
         run_diff(args)
     elif args.mode == "batch":
         run_batch(args)
-    elif args.mode == "run-test":
-        run_orchestrator_mode(args)
     else:
         parser.print_help()
 

@@ -167,7 +167,7 @@ class LiveDetector:
                 if age < 2.0:  # PID appeared very recently
                     self.suspicious_count += 1
                     return ("suspicious", "yellow",
-                            f"⚠ {INJECTION_INDICATORS[event_name]} — New PID {pid}")
+                            f"[WARN] {INJECTION_INDICATORS[event_name]} — New PID {pid}")
 
             self.normal_count += 1
             return ("info", "cyan", f"Syscall-related: {event_name}")
@@ -193,7 +193,7 @@ class LiveDetector:
             if event_name in ("ProcessStart", "ProcessStart/Start"):
                 self.suspicious_count += 1
                 return ("suspicious", "yellow",
-                        f"⚠ New process spawned post-baseline (PID {pid})")
+                        f"[WARN] New process spawned post-baseline (PID {pid})")
 
         # 2. Injection pattern: ThreadStart targeting a different PID
         if event_name in ("ThreadStart", "ThreadStart/Start"):
@@ -202,7 +202,7 @@ class LiveDetector:
                 if age < 3.0:
                     self.critical_count += 1
                     return ("critical", "red",
-                            f"🔴 Remote Thread Injection Detected — PID {pid}")
+                            f"[CRIT] Remote Thread Injection Detected — PID {pid}")
 
         # 3. Event-type rate anomaly (sudden spike or drop)
         baseline_rate = self._baseline_rates.get(event_name, 0)
@@ -216,13 +216,13 @@ class LiveDetector:
             if current_rate > baseline_rate * 5 and recent_count > 10:
                 self.suspicious_count += 1
                 return ("suspicious", "yellow",
-                        f"⚠ Rate anomaly: {current_rate:.1f}/s vs baseline {baseline_rate:.1f}/s")
+                        f"[WARN] Rate anomaly: {current_rate:.1f}/s vs baseline {baseline_rate:.1f}/s")
 
         # 4. Event type never seen in baseline
         if event_name not in self._baseline_rates and event_name != "Unknown":
             self.suspicious_count += 1
             return ("suspicious", "yellow",
-                    f"⚠ New event type (not in baseline): {event_name}")
+                    f"[WARN] New event type (not in baseline): {event_name}")
 
         # 4.5. Telemetry Spoofing / Padding Detection
         # If the total event volume is suddenly higher than baseline, 
@@ -239,7 +239,7 @@ class LiveDetector:
                 
                 if vol_ratio > 1.2 and ent_ratio < 0.6:
                     self.critical_count += 1
-                    return ("critical", "red", "🔴 Telemetry Spoofing / Event Padding Detected")
+                    return ("critical", "red", "[CRIT] Telemetry Spoofing / Event Padding Detected")
 
         # 5. Standard injection indicator check
         if event_name in INJECTION_INDICATORS:

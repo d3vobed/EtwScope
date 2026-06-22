@@ -381,11 +381,11 @@ class ETWScopeMonitorApp(App):
             warning = self.detector.trigger_active_capture()
             log_panel = self.query_one("#log_panel", EvasionAnalysis)
             if warning:
-                log_panel.write_line("\n[bold red]⚠ WARNING: BASELINE APPEARS POISONED![/bold red]")
+                log_panel.write_line("\n[bold red][WARN] BASELINE APPEARS POISONED![/bold red]")
                 log_panel.write_line(f"[bold red]   -> {warning}[/bold red]")
                 log_panel.write_line("[bold yellow]   -> Proceeding with active capture, but results may be skewed.[/bold yellow]")
             else:
-                log_panel.write_line("\n[bold green]✓ BASELINE LOCKED. ACTIVE CAPTURE STARTED.[/bold green]")
+                log_panel.write_line("\n[bold green][OK] BASELINE LOCKED. ACTIVE CAPTURE STARTED.[/bold green]")
                 log_panel.write_line("   -> Now analyzing events for evasion anomalies...")
 
     async def action_inject_payload_1(self) -> None:
@@ -406,7 +406,7 @@ class ETWScopeMonitorApp(App):
             log_panel.write_line(f"[!] Payload not found at {path}")
             return
 
-        log_panel.write_line(f"\n[bold red]🚀 INJECTING {name}[/bold red]")
+        log_panel.write_line(f"\n[bold red][EXEC] INJECTING {name}[/bold red]")
         log_panel.write_line(f"   -> Executing: {path}")
         
         try:
@@ -485,7 +485,7 @@ class ETWScopeMonitorApp(App):
 
         log_panel.write_line("[*] Waiting 5 seconds for ETW session to initialize...")
         await asyncio.sleep(5)
-        log_panel.write_line("\n[bold blue][✓] Live capture started. LEARNING BASELINE...[/bold blue]")
+        log_panel.write_line("\n[bold blue][OK] Live capture started. LEARNING BASELINE...[/bold blue]")
         log_panel.write_line("[*] Let the system run normally to build a profile.")
         log_panel.write_line("[*] [italic]Press SPACEBAR when ready to start Active Capture.[/italic]")
 
@@ -597,7 +597,7 @@ class ETWScopeMonitorApp(App):
                     proc.wait(timeout=5)
                 except Exception:
                     proc.kill()
-                log_panel.write_line("[✓] Capture stopped.")
+                log_panel.write_line("[OK] Capture stopped.")
 
             # Final TRS report
             final_trs = self.detector.compute_live_trs()

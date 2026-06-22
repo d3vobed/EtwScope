@@ -2,16 +2,19 @@ from textual.app import App, ComposeResult
 from textual.containers import Vertical, Horizontal
 from textual.widgets import Header, Footer, Input
 from .widgets import (
-    DashboardHeader, AnalyzeHeader, EventLog, AlertLog,
+    DashboardHeader, AnalyzeHeader, MonitorHeader, EventLog, AlertLog,
     ExecutionTree, EvasionAnalysis, VisibilityScore,
-    TelemetryGrid, MathGrid
+    TelemetryGrid, MathGrid, LiveTelemetryGrid
 )
 from analysis.metrics import MetricsEngine, load_events_from_file, compute_metrics_from_events
 from analysis.trs import TRSEngine, fit_ddf
 from analysis.diff_engine import diff_telemetry
 from analysis.engine import RuleEngine
+from analysis.detector import LiveDetector
 import asyncio
 import json
+import os
+import time
 
 
 class ETWScopeApp(App):
@@ -287,3 +290,247 @@ class ETWScopeAnalyzeApp(App):
         )
 
         log_panel.write_line(f"\n[✓] Analysis complete. TRS = {trs_report['trs']:.4f}")
+
+
+class ETWScopeMonitorApp(App):
+    """Live Passive Monitor — streams ETW events in real-time, classifies
+    anomalies, and computes running TRS without requiring a malware sample.
+    
+    This is the mode that makes ETWScope a true defensive research instrument:
+    it sits on the endpoint like Wireshark, captures all ETW events, and
+    automatically highlights when something suspicious occurs.
+    """
+
+    CSS = """
+    MonitorHeader {
+        background: #1a1a2e;
+        color: #00ff88;
+        padding: 1;
+        text-align: center;
+        text-style: bold;
+    }
+    #filter_input {
+        dock: top;
+        margin: 1;
+        border: solid #00ff88;
+    }
+    #live_grid {
+        height: 70%;
+        border: round #444;
+    }
+    #log_panel {
+        height: 20%;
+        border: round #444;
+    }
+    """
+
+    def __init__(self, silketw_path: str, provider: str,
+                 baseline_path: str = None, capture_duration: int = 0):
+        super().__init__()
+        self.silketw_path = silketw_path
+        self.provider = provider
+        self.baseline_path = baseline_path
+        self.capture_duration = capture_duration  # 0 = indefinite
+        self.detector = LiveDetector(baseline_window_seconds=15)
+        self._all_events_raw = []
+        self._filter_term = ""
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield MonitorHeader(id="header")
+        yield Input(
+            placeholder="🔍 Filter live events (e.g. 'ThreadStart' or 'critical')",
+            id="filter_input"
+        )
+        yield LiveTelemetryGrid(id="live_grid")
+        yield EvasionAnalysis(id="log_panel")
+        yield Footer()
+
+    async def on_input_changed(self, message: Input.Changed) -> None:
+        self._filter_term = message.value.lower()
+
+    async def on_mount(self) -> None:
+        self.run_worker(self._run_monitor(), exclusive=True)
+
+    async def _run_monitor(self) -> None:
+        header = self.query_one("#header", MonitorHeader)
+        live_grid = self.query_one("#live_grid", LiveTelemetryGrid)
+        log_panel = self.query_one("#log_panel", EvasionAnalysis)
+
+        log_panel.write_line("=" * 60)
+        log_panel.write_line(" ETWScope Live Passive Monitor")
+        log_panel.write_line("=" * 60)
+        log_panel.write_line(f"[*] Provider: {self.provider}")
+        log_panel.write_line(f"[*] Detector: Rolling baseline (15s window)")
+
+        # If a baseline JSON is provided, pre-load it
+        if self.baseline_path and os.path.exists(self.baseline_path):
+            log_panel.write_line(f"[*] Loading reference baseline: {self.baseline_path}")
+            try:
+                import concurrent.futures
+                loop = asyncio.get_event_loop()
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    base_events = await loop.run_in_executor(
+                        pool, load_events_from_file, self.baseline_path, None, None
+                    )
+                log_panel.write_line(f"    -> {len(base_events)} reference events loaded")
+            except Exception as e:
+                log_panel.write_line(f"[!] Could not load baseline: {e}")
+
+        # Start SilkETW capture to a temp file
+        import tempfile
+        import subprocess
+        import sys
+
+        temp_log = os.path.join(
+            tempfile.gettempdir(),
+            f"etwscope_live_{int(time.time())}.json"
+        )
+
+        log_panel.write_line(f"[*] Starting SilkETW -> {temp_log}")
+
+        cmd = [
+            self.silketw_path,
+            "-t", "user",
+            "-pn", self.provider,
+            "-ot", "file",
+            "-p", temp_log
+        ]
+
+        kwargs = {}
+        if sys.platform == "win32":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+
+        try:
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, **kwargs
+            )
+        except Exception as e:
+            log_panel.write_line(f"[!] Failed to start SilkETW: {e}")
+            log_panel.write_line("[!] Falling back to file-tail mode...")
+            proc = None
+
+        log_panel.write_line("[*] Waiting 5 seconds for ETW session to initialize...")
+        await asyncio.sleep(5)
+        log_panel.write_line("[✓] Live capture started. Streaming events...")
+        log_panel.write_line("[*] Building baseline profile (first 15 seconds)...")
+
+        # Tail the JSON file for new events
+        from analysis.metrics import _normalise_event
+
+        last_pos = 0
+        update_counter = 0
+        start_time = time.time()
+
+        try:
+            while True:
+                # Check if process died
+                if proc and proc.poll() is not None:
+                    log_panel.write_line("[!] SilkETW process exited unexpectedly.")
+                    break
+
+                # Check duration limit
+                if self.capture_duration > 0:
+                    elapsed = time.time() - start_time
+                    if elapsed >= self.capture_duration:
+                        log_panel.write_line(f"[✓] Capture duration ({self.capture_duration}s) reached.")
+                        break
+
+                # Read new content from the file
+                new_events = []
+                try:
+                    if os.path.exists(temp_log):
+                        with open(temp_log, 'r', encoding='utf-8', errors='ignore') as f:
+                            content = f.read()
+
+                        if len(content) > last_pos:
+                            new_content = content[last_pos:]
+                            last_pos = len(content)
+
+                            # Parse JSON objects from new content
+                            for line in new_content.splitlines():
+                                line = line.strip().rstrip(',').strip('[').strip(']')
+                                if line.startswith('{'):
+                                    try:
+                                        raw = json.loads(line)
+                                        event = _normalise_event(raw)
+                                        if event:
+                                            new_events.append(event)
+                                    except json.JSONDecodeError:
+                                        continue
+                except Exception:
+                    pass
+
+                # Process new events
+                for event in new_events:
+                    risk, color, note = self.detector.classify_event(event)
+                    self._all_events_raw.append((event, risk, color, note))
+
+                    # Apply filter
+                    if self._filter_term:
+                        searchable = (
+                            event.get("event_name", "").lower() +
+                            event.get("provider_name", "").lower() +
+                            risk + note.lower()
+                        )
+                        if self._filter_term not in searchable:
+                            continue
+
+                    live_grid.add_live_event(event, risk, color, note)
+
+                # Update header every 10 iterations
+                update_counter += 1
+                if update_counter % 5 == 0:
+                    trs_data = self.detector.compute_live_trs()
+                    stats = self.detector.get_stats()
+                    header.update_live(
+                        trs=trs_data["trs"],
+                        vis=trs_data["visibility_pct"],
+                        rate=trs_data["event_rate"],
+                        phase=trs_data["phase"],
+                        total=stats["total"],
+                        suspicious=stats["suspicious"],
+                        critical=stats["critical"],
+                    )
+
+                    # Log phase transition
+                    if trs_data["phase"] == "MONITORING" and update_counter == 5:
+                        log_panel.write_line(
+                            "[✓] Baseline established. Now detecting anomalies..."
+                        )
+
+                await asyncio.sleep(0.5)  # Poll every 500ms
+
+        except asyncio.CancelledError:
+            pass
+        finally:
+            # Cleanup: stop SilkETW
+            if proc:
+                log_panel.write_line("[*] Stopping SilkETW capture...")
+                try:
+                    if sys.platform == "win32":
+                        import signal
+                        os.kill(proc.pid, signal.CTRL_C_EVENT)
+                    else:
+                        proc.terminate()
+                    proc.wait(timeout=5)
+                except Exception:
+                    proc.kill()
+                log_panel.write_line("[✓] Capture stopped.")
+
+            # Final TRS report
+            final_trs = self.detector.compute_live_trs()
+            stats = self.detector.get_stats()
+            log_panel.write_line("")
+            log_panel.write_line("=" * 60)
+            log_panel.write_line(" FINAL LIVE MONITOR REPORT")
+            log_panel.write_line("=" * 60)
+            log_panel.write_line(f"  Total Events:     {stats['total']}")
+            log_panel.write_line(f"  Normal:           {stats['normal']}")
+            log_panel.write_line(f"  Suspicious:       {stats['suspicious']}")
+            log_panel.write_line(f"  Critical:         {stats['critical']}")
+            log_panel.write_line(f"  Unique PIDs:      {stats['unique_pids']}")
+            log_panel.write_line(f"  Event Types:      {stats['unique_event_types']}")
+            log_panel.write_line(f"  Final TRS:        {final_trs['trs']:.4f}")
+            log_panel.write_line(f"  EDR Visibility:   {final_trs['visibility_pct']:.1f}%")

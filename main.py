@@ -1,20 +1,18 @@
-"""ETWScope — Secure Telemetry-Driven Code Mutation Framework Analysis Platform.
+"""ETWScope -- Telemetry Evasion Quantification Framework.
 
 Usage Modes:
-  Live Stream (TUI):
-    python main.py --live --mock <etw_log.json>
-    
-  Analyze (TUI with diff):
-    python main.py --analyze <baseline.json> <mutated.json>
+  Monitor (Live Passive -- no malware required):
+    python main.py monitor --silketw SilkETW.exe --provider Microsoft-Windows-Kernel-Process
 
-  Automated Test Runner (Windows only):
-    python main.py run-test --silketw "C:\\SilkETW.exe" --provider "Microsoft-Windows-Kernel-Process" --payload "C:\\tb_inject.exe" --baseline "baseline.json" --out "mutated.json"
+  Analyze (Static Diff or Automated Capture+Inject+Measure):
+    python main.py analyze baseline.json mutated.json
+    python main.py analyze baseline.json --silketw ... --provider ... --payload ... --out ...
 
-  Batch Diff (headless, for Chapter 4 results):
-    python main.py --diff <baseline.json> <mutated.json> --export results.csv
+  Diff (headless, for Chapter 4 results):
+    python main.py diff baseline.json mutated.json --export results.csv
 
-  Batch Multi (compare baseline against multiple mutation intensities):
-    python main.py --batch <baseline.json> --mutated-dir <dir_of_mutated_jsons/> --export results.csv
+  Batch (multiple mutation intensities -> DDF curve):
+    python main.py batch baseline.json --mutated-dir dir/ --export results.csv
 """
 import argparse
 import sys
@@ -249,6 +247,15 @@ def main():
     batch_p.add_argument("--w2", type=float, default=0.35, help="TRS entropy weight")
     batch_p.add_argument("--w3", type=float, default=0.20, help="TRS timing weight")
 
+    # Monitor mode (Live Passive -- no malware required)
+    mon_p = subparsers.add_parser("monitor", help="Live passive ETW monitor (no malware required)")
+    mon_p.add_argument("--silketw", required=True, help="Path to SilkETW.exe")
+    mon_p.add_argument("--provider", required=True,
+                       help="ETW Provider Name (e.g. Microsoft-Windows-Kernel-Process)")
+    mon_p.add_argument("--baseline", help="Optional baseline JSON for reference comparison")
+    mon_p.add_argument("--duration", type=int, default=0,
+                       help="Capture duration in seconds (0 = indefinite, stop with Ctrl+C)")
+
     args = parser.parse_args()
 
     if args.mode == "live":
@@ -259,6 +266,15 @@ def main():
         run_diff(args)
     elif args.mode == "batch":
         run_batch(args)
+    elif args.mode == "monitor":
+        from frontend.app import ETWScopeMonitorApp
+        app = ETWScopeMonitorApp(
+            silketw_path=args.silketw,
+            provider=args.provider,
+            baseline_path=args.baseline,
+            capture_duration=args.duration,
+        )
+        app.run()
     else:
         parser.print_help()
 

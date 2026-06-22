@@ -201,3 +201,98 @@ class MathGrid(DataTable):
         # DDF
         self.add_row("DDF Asymptotic Floor (ε)", "-", f"{trs:.4f}", "[yellow]Empirical Limit Reached[/yellow]" if trs > 0.7 else "[red]Critical EDR Blindspot[/red]")
 
+
+class MonitorHeader(Static):
+    """Live monitor header showing real-time TRS, event rate, and phase."""
+
+    def update_live(self, trs: float, vis: float, rate: float, phase: str,
+                    total: int, suspicious: int, critical: int):
+        if phase == "BASELINE":
+            phase_icon = "🔵 BASELINE"
+        else:
+            phase_icon = "🟢 MONITORING"
+
+        trs_color = "green" if trs > 0.8 else "yellow" if trs > 0.5 else "red"
+
+        self.update(
+            f"🛡️  ETWScope Live Monitor | {phase_icon} | "
+            f"TRS: [{trs_color}]{trs:.4f}[/{trs_color}] | "
+            f"Visibility: {vis:.1f}% | "
+            f"Events: {total} ({rate:.0f}/s) | "
+            f"⚠ Suspicious: [yellow]{suspicious}[/yellow] | "
+            f"🔴 Critical: [red]{critical}[/red]"
+        )
+
+
+class LiveTelemetryGrid(DataTable):
+    """Real-time streaming event grid with color-coded risk classification.
+    
+    Unlike the static TelemetryGrid which shows post-hoc diffs, this grid
+    displays events as they arrive with live color-coding based on the
+    anomaly detector's classification.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.cursor_type = "row"
+        self.zebra_stripes = True
+        self._row_count = 0
+        self._max_rows = 500  # Keep last 500 events for performance
+
+    def on_mount(self) -> None:
+        self.add_columns(
+            "#",
+            "Timestamp",
+            "Event Name / Syscall",
+            "Provider",
+            "PID",
+            "Risk",
+            "Classification"
+        )
+
+    def add_live_event(self, event: dict, risk: str, color: str, note: str):
+        """Add a single event row with risk-based color coding."""
+        self._row_count += 1
+
+        # Truncate old rows for performance
+        if self._row_count > self._max_rows:
+            try:
+                rows = list(self.rows)
+                if rows:
+                    self.remove_row(rows[0])
+            except Exception:
+                pass
+
+        event_name = event.get("event_name", "Unknown")
+        provider = event.get("provider_name", "Unknown")
+        pid = event.get("pid", "-")
+        ts = event.get("timestamp_str", "")
+        if ts and len(ts) > 19:
+            ts = ts[11:23]  # Extract HH:MM:SS.mmm
+
+        # Color the entire row based on risk
+        risk_badge = {
+            "normal":     "[green]●[/green]",
+            "info":       "[cyan]◆[/cyan]",
+            "suspicious": "[yellow]▲[/yellow]",
+            "critical":   "[red bold]⬤[/red bold]",
+        }.get(risk, "●")
+
+        name_styled = f"[{color}]{event_name}[/{color}]"
+        note_styled = f"[{color}]{note}[/{color}]" if note else ""
+
+        # Shorten provider name
+        prov_short = provider.split("-")[-1] if "-" in provider else provider
+
+        self.add_row(
+            str(self._row_count),
+            ts,
+            name_styled,
+            prov_short,
+            str(pid) if pid else "-",
+            risk_badge,
+            note_styled
+        )
+
+        # Auto-scroll to bottom
+        self.scroll_end(animate=False)

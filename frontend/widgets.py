@@ -117,14 +117,14 @@ class ExecutionTree(Tree):
             if tid_key not in self.tid_nodes:
                 if len(self.tid_nodes) > 100:
                     return
-                tid_label = f"⚙️ Thread (TID: {tid})"
+                tid_label = f"[-] Thread (TID: {tid})"
                 self.tid_nodes[tid_key] = pid_node.add(tid_label, expand=True)
             target_node = self.tid_nodes[tid_key]
         else:
             target_node = pid_node
 
         if len(target_node.children) < 25:
-            target_node.add_leaf(f"⚡ {event_name}")
+            target_node.add_leaf(f"  -> {event_name}")
 
 
 class TelemetryGrid(DataTable):

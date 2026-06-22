@@ -301,6 +301,12 @@ class ETWScopeMonitorApp(App):
     automatically highlights when something suspicious occurs.
     """
 
+    BINDINGS = [
+        ("1", "inject_payload_1", "Inject I1 (Direct Syscall)"),
+        ("2", "inject_payload_2", "Inject I2 (Dynamic SSN)"),
+        ("3", "inject_payload_3", "Inject I3 (HWBP)"),
+    ]
+
     CSS = """
     MonitorHeader {
         background: #1a1a2e;
@@ -314,23 +320,42 @@ class ETWScopeMonitorApp(App):
         margin: 1;
         border: solid #00ff88;
     }
-    #live_grid {
-        height: 70%;
+    .panel {
         border: round #444;
+        height: 100%;
+    }
+    #exec_tree {
+        width: 30%;
+    }
+    #live_grid {
+        width: 70%;
+    }
+    #bottom_pane {
+        height: 25%;
     }
     #log_panel {
-        height: 20%;
+        width: 70%;
         border: round #444;
+    }
+    #visibility {
+        width: 30%;
+        border: round #444;
+        background: #0f0f23;
+        color: #e0e0e0;
     }
     """
 
     def __init__(self, silketw_path: str, provider: str,
-                 baseline_path: str = None, capture_duration: int = 0):
+                 baseline_path: str = None, capture_duration: int = 0,
+                 payload_i1: str = None, payload_i2: str = None, payload_i3: str = None):
         super().__init__()
         self.silketw_path = silketw_path
         self.provider = provider
         self.baseline_path = baseline_path
         self.capture_duration = capture_duration  # 0 = indefinite
+        self.payload_i1 = payload_i1
+        self.payload_i2 = payload_i2
+        self.payload_i3 = payload_i3
         self.detector = LiveDetector(baseline_window_seconds=15)
         self._all_events_raw = []
         self._filter_term = ""
@@ -342,9 +367,41 @@ class ETWScopeMonitorApp(App):
             placeholder="🔍 Filter live events (e.g. 'ThreadStart' or 'critical')",
             id="filter_input"
         )
-        yield LiveTelemetryGrid(id="live_grid")
-        yield EvasionAnalysis(id="log_panel")
+        with Horizontal(id="main_pane", classes="panel"):
+            yield ExecutionTree(id="exec_tree", classes="panel")
+            yield LiveTelemetryGrid(id="live_grid", classes="panel")
+        with Horizontal(id="bottom_pane"):
+            yield VisibilityScore(id="visibility")
+            yield EvasionAnalysis(id="log_panel")
         yield Footer()
+
+    async def action_inject_payload_1(self) -> None:
+        await self._trigger_payload(self.payload_i1, "Intensity 1 (Direct Syscall)")
+
+    async def action_inject_payload_2(self) -> None:
+        await self._trigger_payload(self.payload_i2, "Intensity 2 (Dynamic SSN)")
+
+    async def action_inject_payload_3(self) -> None:
+        await self._trigger_payload(self.payload_i3, "Intensity 3 (HWBP)")
+
+    async def _trigger_payload(self, path: str, name: str) -> None:
+        log_panel = self.query_one("#log_panel", EvasionAnalysis)
+        if not path:
+            log_panel.write_line(f"[!] {name} payload path not provided via CLI. Use --payload-iX")
+            return
+        if not os.path.exists(path):
+            log_panel.write_line(f"[!] Payload not found at {path}")
+            return
+
+        log_panel.write_line(f"\n[bold red]🚀 INJECTING {name}[/bold red]")
+        log_panel.write_line(f"   -> Executing: {path}")
+        
+        try:
+            import subprocess
+            subprocess.Popen([path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            log_panel.write_line("   -> Process launched asynchronously.")
+        except Exception as e:
+            log_panel.write_line(f"[!] Failed to launch payload: {e}")
 
     async def on_input_changed(self, message: Input.Changed) -> None:
         self._filter_term = message.value.lower()
@@ -356,9 +413,11 @@ class ETWScopeMonitorApp(App):
         header = self.query_one("#header", MonitorHeader)
         live_grid = self.query_one("#live_grid", LiveTelemetryGrid)
         log_panel = self.query_one("#log_panel", EvasionAnalysis)
+        exec_tree = self.query_one("#exec_tree", ExecutionTree)
+        vis_score = self.query_one("#visibility", VisibilityScore)
 
         log_panel.write_line("=" * 60)
-        log_panel.write_line(" ETWScope Live Passive Monitor")
+        log_panel.write_line(" ETWScope Interactive Live Monitor")
         log_panel.write_line("=" * 60)
         log_panel.write_line(f"[*] Provider: {self.provider}")
         log_panel.write_line(f"[*] Detector: Rolling baseline (15s window)")
@@ -467,6 +526,16 @@ class ETWScopeMonitorApp(App):
                     risk, color, note = self.detector.classify_event(event)
                     self._all_events_raw.append((event, risk, color, note))
 
+                    # Update Execution Tree
+                    pid = event.get("pid")
+                    if pid:
+                        exec_tree.add_event(
+                            pid=pid,
+                            tid=event.get("tid"),
+                            event_name=event.get("event_name"),
+                            provider=event.get("provider_name")
+                        )
+
                     # Apply filter
                     if self._filter_term:
                         searchable = (
@@ -493,6 +562,7 @@ class ETWScopeMonitorApp(App):
                         suspicious=stats["suspicious"],
                         critical=stats["critical"],
                     )
+                    vis_score.update_score(trs_data["trs"])
 
                     # Log phase transition
                     if trs_data["phase"] == "MONITORING" and update_counter == 5:

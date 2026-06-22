@@ -255,6 +255,9 @@ def main():
     mon_p.add_argument("--baseline", help="Optional baseline JSON for reference comparison")
     mon_p.add_argument("--duration", type=int, default=0,
                        help="Capture duration in seconds (0 = indefinite, stop with Ctrl+C)")
+    mon_p.add_argument("--payload-i1", help="Path to Intensity 1 payload (e.g., Direct Syscall)")
+    mon_p.add_argument("--payload-i2", help="Path to Intensity 2 payload (e.g., Dynamic SSN)")
+    mon_p.add_argument("--payload-i3", help="Path to Intensity 3 payload (e.g., HWBP Unhooking)")
 
     args = parser.parse_args()
 
@@ -273,6 +276,9 @@ def main():
             provider=args.provider,
             baseline_path=args.baseline,
             capture_duration=args.duration,
+            payload_i1=args.payload_i1,
+            payload_i2=args.payload_i2,
+            payload_i3=args.payload_i3,
         )
         app.run()
     else:

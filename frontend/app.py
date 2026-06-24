@@ -1,10 +1,10 @@
 from textual.app import App, ComposeResult
-from textual.containers import Vertical, Horizontal
+from textual.containers import Vertical, Horizontal, Container
 from textual.widgets import Header, Footer, Input
 from .widgets import (
     DashboardHeader, AnalyzeHeader, MonitorHeader, EventLog, AlertLog,
     ExecutionTree, EvasionAnalysis, VisibilityScore,
-    TelemetryGrid, MathGrid, LiveTelemetryGrid
+    TelemetryGrid, MathGrid, LiveTelemetryGrid, MeasurementConsole
 )
 from analysis.metrics import MetricsEngine, load_events_from_file, compute_metrics_from_events
 from analysis.trs import TRSEngine, fit_ddf
@@ -292,19 +292,18 @@ class ETWScopeAnalyzeApp(App):
         log_panel.write_line(f"\n[✓] Analysis complete. TRS = {trs_report['trs']:.4f}")
 
 
-class ETWScopeMonitorApp(App):
-    """Live Passive Monitor — streams ETW events in real-time, classifies
-    anomalies, and computes running TRS without requiring a malware sample.
-    
-    This is the mode that makes ETWScope a true defensive research instrument:
-    it sits on the endpoint like Wireshark, captures all ETW events, and
-    automatically highlights when something suspicious occurs.
+class ETWScopeCaptureApp(App):
+    """
+    Unified active capture terminal interface.
+    Strips away UI panes to provide a pure Wireshark-like event stream
+    combined with a mathematical Ignorance Measurement console at the bottom.
     """
 
     BINDINGS = [
-        ("1", "inject_payload_1", "Inject I1 (Direct Syscall)"),
-        ("2", "inject_payload_2", "Inject I2 (Dynamic SSN)"),
-        ("3", "inject_payload_3", "Inject I3 (HWBP)"),
+        ("1", "inject_payload_1", "Inject I1"),
+        ("2", "inject_payload_2", "Inject I2"),
+        ("3", "inject_payload_3", "Inject I3"),
+        ("4", "inject_payload_4", "Inject I4"),
         ("space", "toggle_capture", "Start Active Capture"),
     ]
 
@@ -321,42 +320,37 @@ class ETWScopeMonitorApp(App):
         margin: 1;
         border: solid #00ff88;
     }
-    .panel {
+    #main_pane {
+        height: 70%;
         border: round #444;
-        height: 100%;
-    }
-    #exec_tree {
-        width: 30%;
     }
     #live_grid {
-        width: 70%;
+        width: 100%;
+        height: 100%;
     }
     #bottom_pane {
-        height: 25%;
+        height: 30%;
+        border: round #444;
     }
     #log_panel {
-        width: 70%;
-        border: round #444;
-    }
-    #visibility {
-        width: 30%;
-        border: round #444;
-        background: #0f0f23;
-        color: #e0e0e0;
+        width: 100%;
+        height: 100%;
     }
     """
 
     def __init__(self, silketw_path: str, provider: str,
-                 baseline_path: str = None, capture_duration: int = 0,
-                 payload_i1: str = None, payload_i2: str = None, payload_i3: str = None):
+                 baseline_path: str = None, pid_filter: str = None,
+                 payload_i1: str = None, payload_i2: str = None, 
+                 payload_i3: str = None, payload_i4: str = None):
         super().__init__()
         self.silketw_path = silketw_path
         self.provider = provider
         self.baseline_path = baseline_path
-        self.capture_duration = capture_duration  # 0 = indefinite
+        self.pid_filter = pid_filter
         self.payload_i1 = payload_i1
         self.payload_i2 = payload_i2
         self.payload_i3 = payload_i3
+        self.payload_i4 = payload_i4
         self.detector = LiveDetector()
         self._all_events_raw = []
         self._filter_term = ""
@@ -368,18 +362,16 @@ class ETWScopeMonitorApp(App):
             placeholder="🔍 Filter live events (e.g. 'ThreadStart' or 'critical')",
             id="filter_input"
         )
-        with Horizontal(id="main_pane", classes="panel"):
-            yield ExecutionTree(id="exec_tree", classes="panel")
-            yield LiveTelemetryGrid(id="live_grid", classes="panel")
-        with Horizontal(id="bottom_pane"):
-            yield VisibilityScore(id="visibility")
-            yield EvasionAnalysis(id="log_panel")
+        with Container(id="main_pane"):
+            yield LiveTelemetryGrid(id="live_grid")
+        with Container(id="bottom_pane"):
+            yield MeasurementConsole(id="log_panel")
         yield Footer()
 
     async def action_toggle_capture(self) -> None:
         if not self.detector.baseline_established:
             warning = self.detector.trigger_active_capture()
-            log_panel = self.query_one("#log_panel", EvasionAnalysis)
+            log_panel = self.query_one("#log_panel", MeasurementConsole)
             if warning:
                 log_panel.write_line("\n[bold red][WARN] BASELINE APPEARS POISONED![/bold red]")
                 log_panel.write_line(f"[bold red]   -> {warning}[/bold red]")
@@ -389,16 +381,19 @@ class ETWScopeMonitorApp(App):
                 log_panel.write_line("   -> Now analyzing events for evasion anomalies...")
 
     async def action_inject_payload_1(self) -> None:
-        await self._trigger_payload(self.payload_i1, "Intensity 1 (Direct Syscall)")
+        await self._trigger_payload(self.payload_i1, "Intensity 1 (Baseline Injection)")
 
     async def action_inject_payload_2(self) -> None:
-        await self._trigger_payload(self.payload_i2, "Intensity 2 (Dynamic SSN)")
+        await self._trigger_payload(self.payload_i2, "Intensity 2 (Direct Syscall)")
 
     async def action_inject_payload_3(self) -> None:
-        await self._trigger_payload(self.payload_i3, "Intensity 3 (HWBP)")
+        await self._trigger_payload(self.payload_i3, "Intensity 3 (Indirect Syscall)")
+        
+    async def action_inject_payload_4(self) -> None:
+        await self._trigger_payload(self.payload_i4, "Intensity 4 (HWBP Unhooking)")
 
     async def _trigger_payload(self, path: str, name: str) -> None:
-        log_panel = self.query_one("#log_panel", EvasionAnalysis)
+        log_panel = self.query_one("#log_panel", MeasurementConsole)
         if not path:
             log_panel.write_line(f"[!] {name} payload path not provided via CLI. Use --payload-iX")
             return
@@ -420,17 +415,15 @@ class ETWScopeMonitorApp(App):
         self._filter_term = message.value.lower()
 
     async def on_mount(self) -> None:
-        self.run_worker(self._run_monitor(), exclusive=True)
+        self.run_worker(self._run_capture())
 
-    async def _run_monitor(self) -> None:
+    async def _run_capture(self) -> None:
         header = self.query_one("#header", MonitorHeader)
         live_grid = self.query_one("#live_grid", LiveTelemetryGrid)
-        log_panel = self.query_one("#log_panel", EvasionAnalysis)
-        exec_tree = self.query_one("#exec_tree", ExecutionTree)
-        vis_score = self.query_one("#visibility", VisibilityScore)
+        log_panel = self.query_one("#log_panel", MeasurementConsole)
 
         log_panel.write_line("=" * 60)
-        log_panel.write_line(" ETWScope Interactive Live Monitor")
+        log_panel.write_line(" ETWScope Active Measurement Terminal")
         log_panel.write_line("=" * 60)
         log_panel.write_line(f"[*] Provider: {self.provider}")
         log_panel.write_line(f"[*] Detector: Rolling baseline (15s window)")
@@ -537,28 +530,11 @@ class ETWScopeMonitorApp(App):
 
                 # Process new events
                 for event in new_events:
+                    if self.pid_filter and event.get("pid") != self.pid_filter:
+                        continue
+
                     risk, color, note = self.detector.classify_event(event)
                     self._all_events_raw.append((event, risk, color, note))
-
-                    # Update Execution Tree
-                    pid = event.get("pid")
-                    if pid:
-                        exec_tree.add_event(
-                            pid=pid,
-                            tid=event.get("tid"),
-                            event_name=event.get("event_name"),
-                            provider=event.get("provider_name")
-                        )
-
-                    # Apply filter
-                    if self._filter_term:
-                        searchable = (
-                            event.get("event_name", "").lower() +
-                            event.get("provider_name", "").lower() +
-                            risk + note.lower()
-                        )
-                        if self._filter_term not in searchable:
-                            continue
 
                     live_grid.add_live_event(event, risk, color, note)
 
@@ -576,9 +552,6 @@ class ETWScopeMonitorApp(App):
                         suspicious=stats["suspicious"],
                         critical=stats["critical"],
                     )
-                    vis_score.update_score(trs_data["trs"])
-
-                    # Log phase transition (No longer needed automatically, handled by Spacebar)
 
                 await asyncio.sleep(0.5)  # Poll every 500ms
 

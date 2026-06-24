@@ -33,62 +33,35 @@ class AlertLog(Log):
         self.max_lines = 500
 
 
-class EvasionAnalysis(Log):
-    """Real-time evasion layer classification panel."""
+class MeasurementConsole(Log):
+    """Real-time technical measurement and logging console."""
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.max_lines = 200
+        self.max_lines = 1000
 
     def on_mount(self) -> None:
-        self.write_line("[*] Evasion Analysis Engine Started")
+        self.write_line("[*] Active Measurement Console Initialized")
 
     def log_evasion(self, msg: str):
         self.write_line(msg)
 
     def show_categories(self, categories: dict):
-        """Display a full evasion breakdown from diff analysis."""
+        """Display a full breakdown of ignored telemetry layers."""
         self.write_line("\n" + "=" * 50)
-        self.write_line(" EVASION LAYER CLASSIFICATION")
+        self.write_line(" IGNORED TELEMETRY LAYER CLASSIFICATION")
         self.write_line("=" * 50)
         for layer, events in categories.items():
             count = len(events)
-            icon = "🔴" if count > 0 else "🟢"
-            self.write_line(f"  {icon} {layer}: {count} event types")
+            icon = "[-]" if count > 0 else "[+]"
+            self.write_line(f"  {icon} {layer}: {count} event types ignored/bypassed")
             for ev in events[:8]:
                 self.write_line(f"      - {ev}")
             if count > 8:
                 self.write_line(f"      ... and {count - 8} more")
 
 
-class VisibilityScore(Static):
-    """Visual gauge showing EDR visibility as a percentage with DDF status."""
 
-    def update_score(self, trs: float, ddf_params: dict = None):
-        visibility = min(trs * 100, 100.0)
-
-        if visibility >= 90:
-            status = "✅ Full Visibility"
-        elif visibility >= 78:
-            status = "⚠️ Asymptotic Floor Reached (ε ≈ 0.78)"
-        elif visibility >= 50:
-            status = "🟡 Significant Decay Present"
-        else:
-            status = "🔴 Critical EDR Blindspot"
-
-        bar_len = int(visibility / 5)
-        bar = "█" * bar_len + "░" * (20 - bar_len)
-
-        content = f"🛡️  Simulated EDR Visibility (Windows Defender / CrowdStrike Falcon)\n"
-        content += f"    Score: {visibility:.1f}%  [{bar}]\n"
-        content += f"    Status: {status}\n"
-
-        if ddf_params:
-            content += (f"    DDF: TRS(I) = {ddf_params.get('trs_max', 0):.3f} × "
-                        f"e^(-{ddf_params.get('lambda', 0):.3f}·I) + "
-                        f"{ddf_params.get('epsilon', 0):.3f}")
-
-        self.update(content)
 
 
 class ExecutionTree(Tree):
@@ -203,7 +176,7 @@ class MathGrid(DataTable):
 
 
 class MonitorHeader(Static):
-    """Live monitor header showing real-time TRS, event rate, and phase."""
+    """Live monitor header showing real-time Ignorance Measurement."""
 
     def update_live(self, trs: float, vis: float, rate: float, phase: str,
                     total: int, suspicious: int, critical: int):
@@ -216,13 +189,14 @@ class MonitorHeader(Static):
             )
         else:
             trs_color = "green" if trs > 0.8 else "yellow" if trs > 0.5 else "red"
+            ign_pct = 100.0 - vis
             self.update(
                 f"[bold green][ STATUS: {phase} ][/bold green] | "
-                f"TRS: [{trs_color}]{trs:.4f}[/{trs_color}] ({vis:.1f}%) | "
+                f"Telemetry Ignorance: [{trs_color}]{ign_pct:.1f}%[/{trs_color}] (TRS: {trs:.4f}) | "
                 f"Rate: {rate}/s | "
                 f"Events: {total} | "
-                f"[yellow]Suspicious: {suspicious}[/yellow] | "
-                f"[red]Critical: {critical}[/red]"
+                f"[yellow]Ignored: {suspicious}[/yellow] | "
+                f"[red]Critical Deviations: {critical}[/red]"
             )
 
 

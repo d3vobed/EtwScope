@@ -1,18 +1,8 @@
-"""ETWScope -- Telemetry Evasion Quantification Framework.
+"""ETWScope -- Active Telemetry Ignorance Measurement Framework.
 
-Usage Modes:
-  Monitor (Live Passive -- no malware required):
-    python main.py monitor --silketw SilkETW.exe --provider Microsoft-Windows-Kernel-Process
-
-  Analyze (Static Diff or Automated Capture+Inject+Measure):
-    python main.py analyze baseline.json mutated.json
-    python main.py analyze baseline.json --silketw ... --provider ... --payload ... --out ...
-
-  Diff (headless, for Chapter 4 results):
-    python main.py diff baseline.json mutated.json --export results.csv
-
-  Batch (multiple mutation intensities -> DDF curve):
-    python main.py batch baseline.json --mutated-dir dir/ --export results.csv
+Usage Mode:
+  Capture (Live ETW Capture + Payload Injection + Real-time Measurement):
+    python main.py capture --silketw SilkETW.exe --provider Microsoft-Windows-Kernel-Process --payload-i1 poc_injector.exe
 """
 import argparse
 import sys
@@ -197,88 +187,37 @@ def run_batch(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="ETWScope: Secure Telemetry-Driven Code Mutation Framework Analysis Platform",
+        description="ETWScope: Active Telemetry Ignorance Measurement Framework",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__
     )
     subparsers = parser.add_subparsers(dest="mode", help="Operating mode")
 
-    # Live mode
-    live_p = subparsers.add_parser("live", help="Live streaming TUI")
-    live_p.add_argument("--mock", required=True, help="Path to JSON file to stream")
-    live_p.add_argument("--backend", default="backend/target/release/etwscope_backend",
-                        help="Path to rust backend executable")
-
-    # Analyze mode (Unified TUI: Static Diff OR Automated Execution)
-    analyze_p = subparsers.add_parser("analyze", help="TUI analysis of baseline vs mutated (or dynamic execution)")
-    analyze_p.add_argument("baseline", help="Path to baseline ETW JSON log")
-    analyze_p.add_argument("mutated", nargs='?', help="Path to mutated ETW JSON log (optional if running payload)")
-    analyze_p.add_argument("--pid", help="Filter by Process ID")
-    analyze_p.add_argument("--provider", help="Filter by ETW provider name")
-    
-    # Optional parameters to trigger the automated capture -> inject -> measure lifecycle
-    analyze_p.add_argument("--payload", help="Path to the mutated payload exe to run")
-    analyze_p.add_argument("--silketw", help="Path to SilkETW.exe (required if payload is set)")
-    analyze_p.add_argument("--out", help="Path to output the generated JSON (required if payload is set)")
-    analyze_p.add_argument("--target-pid", help="Target PID to pass to payload (optional)")
-
-    # Diff mode (headless)
-    diff_p = subparsers.add_parser("diff", help="Headless diff with TRS computation")
-    diff_p.add_argument("baseline", help="Path to baseline ETW JSON log")
-    diff_p.add_argument("mutated", help="Path to mutated ETW JSON log")
-    diff_p.add_argument("--pid", help="Filter by Process ID")
-    diff_p.add_argument("--provider", help="Filter by ETW provider name")
-    diff_p.add_argument("--export", help="Export results to CSV file")
-    diff_p.add_argument("--json-out", help="Export full report to JSON")
-    diff_p.add_argument("--w1", type=float, default=0.45, help="TRS volume weight")
-    diff_p.add_argument("--w2", type=float, default=0.35, help="TRS entropy weight")
-    diff_p.add_argument("--w3", type=float, default=0.20, help="TRS timing weight")
-
-    # Batch mode (multiple intensities -> DDF)
-    batch_p = subparsers.add_parser("batch", help="Batch comparison for DDF curve fitting")
-    batch_p.add_argument("baseline", help="Path to baseline ETW JSON log")
-    batch_p.add_argument("--mutated-dir", required=True,
-                         help="Directory containing mutated JSON logs")
-    batch_p.add_argument("--pid", help="Filter by Process ID")
-    batch_p.add_argument("--provider", help="Filter by ETW provider name")
-    batch_p.add_argument("--export", help="Export results to CSV file")
-    batch_p.add_argument("--json-out", help="Export full report to JSON")
-    batch_p.add_argument("--w1", type=float, default=0.45, help="TRS volume weight")
-    batch_p.add_argument("--w2", type=float, default=0.35, help="TRS entropy weight")
-    batch_p.add_argument("--w3", type=float, default=0.20, help="TRS timing weight")
-
-    # Monitor mode (Live Passive -- no malware required)
-    mon_p = subparsers.add_parser("monitor", help="Live passive ETW monitor (no malware required)")
-    mon_p.add_argument("--silketw", required=True, help="Path to SilkETW.exe")
-    mon_p.add_argument("--provider", required=True,
+    # Capture mode (Unified Live Capture + Injection)
+    cap_p = subparsers.add_parser("capture", help="Start ETWScope unified terminal capture interface")
+    cap_p.add_argument("--silketw", required=True, help="Path to SilkETW.exe")
+    cap_p.add_argument("--provider", required=True,
                        help="ETW Provider Name (e.g. Microsoft-Windows-Kernel-Process)")
-    mon_p.add_argument("--baseline", help="Optional baseline JSON for reference comparison")
-    mon_p.add_argument("--duration", type=int, default=0,
-                       help="Capture duration in seconds (0 = indefinite, stop with Ctrl+C)")
-    mon_p.add_argument("--payload-i1", help="Path to Intensity 1 payload (e.g., Direct Syscall)")
-    mon_p.add_argument("--payload-i2", help="Path to Intensity 2 payload (e.g., Dynamic SSN)")
-    mon_p.add_argument("--payload-i3", help="Path to Intensity 3 payload (e.g., HWBP Unhooking)")
+    cap_p.add_argument("--filter-pid", help="Filter capture to a specific PID (optional)")
+    cap_p.add_argument("--baseline", help="Optional baseline JSON for reference comparison")
+    cap_p.add_argument("--payload-i1", help="Path to Intensity 1 payload (e.g., standard injection)")
+    cap_p.add_argument("--payload-i2", help="Path to Intensity 2 payload (e.g., Direct Syscalls)")
+    cap_p.add_argument("--payload-i3", help="Path to Intensity 3 payload (e.g., Indirect Syscalls)")
+    cap_p.add_argument("--payload-i4", help="Path to Intensity 4 payload (e.g., HWBP Unhooking)")
 
     args = parser.parse_args()
 
-    if args.mode == "live":
-        run_live(args)
-    elif args.mode == "analyze":
-        run_analyze(args)
-    elif args.mode == "diff":
-        run_diff(args)
-    elif args.mode == "batch":
-        run_batch(args)
-    elif args.mode == "monitor":
-        from frontend.app import ETWScopeMonitorApp
-        app = ETWScopeMonitorApp(
+    if args.mode == "capture":
+        from frontend.app import ETWScopeCaptureApp
+        app = ETWScopeCaptureApp(
             silketw_path=args.silketw,
             provider=args.provider,
             baseline_path=args.baseline,
-            capture_duration=args.duration,
+            pid_filter=args.filter_pid,
             payload_i1=args.payload_i1,
             payload_i2=args.payload_i2,
             payload_i3=args.payload_i3,
+            payload_i4=args.payload_i4,
         )
         app.run()
     else:

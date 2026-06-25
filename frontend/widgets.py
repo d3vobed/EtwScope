@@ -271,5 +271,62 @@ class LiveTelemetryGrid(DataTable):
             note_styled
         )
 
+
+class MutationTracker(Static):
+    """Visual state machine mapping execution path visibility."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.state = {
+            "target": False,
+            "alloc": False,
+            "write": False,
+            "exec": False
+        }
+        self.active_pid = None
+
+    def reset_tracker(self, pid: str = None):
+        """Reset the tracker for a new injection attempt."""
+        self.state = {k: False for k in self.state}
+        self.active_pid = pid
+        self._render_state()
+
+    def update_state(self, stage: str, detected: bool = True):
+        """Update a specific stage of the injection lifecycle."""
+        if stage in self.state:
+            self.state[stage] = detected
+            self._render_state()
+
+    def _render_state(self):
+        """Render the visual checklist."""
+        content = "[bold cyan]=== EXECUTION PATH TRACKER ===[/bold cyan]\n"
+        if self.active_pid:
+            content += f"Tracking Injection into PID: {self.active_pid}\n\n"
+        else:
+            content += "Awaiting Payload Execution...\n\n"
+
+        stages = [
+            ("target", "1. Process Targeting (OpenProcess)"),
+            ("alloc", "2. Memory Allocation (VirtualAllocEx)"),
+            ("write", "3. Payload Writing (WriteProcessMemory)"),
+            ("exec", "4. Execution Trigger (CreateRemoteThread)")
+        ]
+
+        # Logic: If execution happened, but previous steps are missing, they were bypassed
+        exec_happened = self.state["exec"]
+
+        for key, desc in stages:
+            if self.state[key]:
+                status = "[bold green][✓] DETECTED[/bold green]"
+            elif exec_happened and not self.state[key]:
+                status = "[bold red][!] MUTATED / INVISIBLE[/bold red]"
+            else:
+                status = "[gray][ ] Pending...[/gray]"
+
+            content += f"{desc}\n    -> {status}\n\n"
+
+        self.update(content)
+
+
         # Auto-scroll to bottom
         self.scroll_end(animate=False)

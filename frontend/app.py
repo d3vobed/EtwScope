@@ -3,7 +3,7 @@ from textual.containers import Vertical, Horizontal, Container
 from textual.widgets import Header, Footer, Input
 from .widgets import (
     DashboardHeader, AnalyzeHeader, MonitorHeader, EventLog, AlertLog,
-    TelemetryGrid, MathGrid, LiveTelemetryGrid, MeasurementConsole
+    TelemetryGrid, MathGrid, LiveTelemetryGrid, MeasurementConsole, MutationTracker
 )
 from analysis.metrics import MetricsEngine, load_events_from_file, compute_metrics_from_events
 from analysis.trs import TRSEngine, fit_ddf
@@ -50,8 +50,15 @@ class ETWScopeCaptureApp(App):
         border: round #444;
     }
     #live_grid {
-        width: 100%;
+        width: 75%;
         height: 100%;
+        border-right: solid #444;
+    }
+    #mutation_tracker {
+        width: 25%;
+        height: 100%;
+        padding: 1;
+        background: #111122;
     }
     #bottom_pane {
         height: 30%;
@@ -87,8 +94,9 @@ class ETWScopeCaptureApp(App):
             placeholder="🔍 Filter live events (e.g. 'ThreadStart' or 'critical')",
             id="filter_input"
         )
-        with Container(id="main_pane"):
+        with Horizontal(id="main_pane"):
             yield LiveTelemetryGrid(id="live_grid")
+            yield MutationTracker(id="mutation_tracker")
         with Container(id="bottom_pane"):
             yield MeasurementConsole(id="log_panel")
         yield Footer()
@@ -119,6 +127,8 @@ class ETWScopeCaptureApp(App):
 
     async def _trigger_payload(self, path: str, name: str) -> None:
         log_panel = self.query_one("#log_panel", MeasurementConsole)
+        tracker = self.query_one("#mutation_tracker", MutationTracker)
+        
         if not path:
             log_panel.write_line(f"[!] {name} payload path not provided via CLI. Use --payload-iX")
             return
@@ -131,8 +141,13 @@ class ETWScopeCaptureApp(App):
         
         try:
             import subprocess
-            subprocess.Popen([path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            proc = subprocess.Popen([path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             log_panel.write_line("   -> Process launched asynchronously.")
+            
+            # Reset the visual tracker for the new target
+            tracker.reset_tracker(pid=str(proc.pid))
+            self.detector.set_active_tracker(tracker)
+            
         except Exception as e:
             log_panel.write_line(f"[!] Failed to launch payload: {e}")
 

@@ -91,6 +91,13 @@ class LiveDetector:
         self._known_pids: set = set()
         self._pid_first_seen: Dict[str, float] = {}
 
+        # Visual Mutation Tracker
+        self.tracker = None
+
+    def set_active_tracker(self, tracker):
+        """Link the visual mutation tracker to the detector."""
+        self.tracker = tracker
+
     def classify_event(self, event: Dict[str, Any]) -> Tuple[str, str, str]:
         """Classify a single ETW event and return (risk_level, color, note).
         
@@ -240,6 +247,23 @@ class LiveDetector:
                 if vol_ratio > 1.2 and ent_ratio < 0.6:
                     self.critical_count += 1
                     return ("critical", "red", "[CRIT] Telemetry Spoofing / Event Padding Detected")
+
+        # --- Visual Tracker State Updates ---
+        if self.tracker:
+            # We don't always know the target PID, but we can infer stages from events
+            # Note: A real payload might trigger these on other PIDs, so we track globally for the demo.
+            
+            if event_name in ("ProcessStart", "ProcessStart/Start", "OpenProcess"):
+                self.tracker.update_state("target", True)
+                
+            elif event_name in ("VirtualAllocEx", "NtAllocateVirtualMemory", "PagePriorityChange"):
+                self.tracker.update_state("alloc", True)
+                
+            elif event_name in ("WriteProcessMemory", "NtWriteVirtualMemory"):
+                self.tracker.update_state("write", True)
+                
+            elif event_name in ("ThreadStart", "ThreadStart/Start", "CreateRemoteThread"):
+                self.tracker.update_state("exec", True)
 
         # 5. Standard injection indicator check
         if event_name in INJECTION_INDICATORS:

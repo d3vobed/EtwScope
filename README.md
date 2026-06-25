@@ -1,50 +1,57 @@
 # ETWScope
 
-`ETWScope` is a professional, hybrid Rust/Python Windows telemetry research platform designed for exploring Event Tracing for Windows (ETW) provider activity in real time.
+`ETWScope` is a professional, active telemetry ignorance measurement framework designed for exploring Event Tracing for Windows (ETW) provider filtering limits in real time.
 
 ## Purpose & Ethical Statement
-**This project is purely defensive and research-oriented.** It is NOT an offensive security tool or an EDR bypass framework. It is intended for detection engineering, telemetry resilience scoring (TRS), and behavioral anomaly detection.
+**This project is purely defensive and research-oriented.** It is NOT an offensive security tool or an EDR bypass framework. It is designed to formally calculate **Telemetry Ignorance**—measuring exactly what percentage of a malware's execution path is ignored or deemed a false positive by standard ETW filtering configurations.
 
 ## Architecture
-The platform is built on a high-performance hybrid stack:
-- **Backend (Rust):** Provides a blazing-fast ETW subscription engine capable of parsing thousands of ETW events per second natively on Windows. On Linux development environments, it supports file-based streaming (`--mock`) to emulate live ingestion.
-- **Frontend & Analysis (Python):** Uses `Textual` for a rich Terminal User Interface (TUI). It consumes the JSON stream from the backend and calculates sliding-window entropy, timing variance ($CV_t$), and TRS.
-- **Rules Engine:** A Sigma/YARA-inspired YAML detection engine for stateful sequence tracking.
+The platform is built as a pure, highly technical terminal measurement instrument:
+- **Unified Capture Engine:** Strips away visual "slop" to provide a fast-scrolling Wireshark-style event grid.
+- **Mathematical Measurement Console:** Real-time log that calculates Telemetry Ignorance, Event Volume ($F$), and Entropy ($H$) while you dynamically inject payloads.
+- **Payload Integration:** Supports triggering up to 4 intensities of code mutation (from standard APIs to HWBP unhooking) directly from the terminal to observe the exact moment the sensors go blind.
 
 ## Installation
 
 ### Prerequisites
-- Rust (Cargo)
 - Python 3.11+
+- SilkETW (must be downloaded and accessible)
+- (Optional) Visual Studio / GCC to compile the test payload
 
 ### Setup
-1. **Compile Backend**
-   ```bash
-   cd backend
-   cargo build --release
-   cd ..
+1. **Clone the Repository**
+   ```powershell
+   git clone git@github.com:d3vobed/EtwScope.git
+   cd EtwScope
    ```
 
 2. **Install Python Dependencies**
-   ```bash
+   ```powershell
    python -m venv venv
-   source venv/bin/activate
+   .\venv\Scripts\activate  # On Linux: source venv/bin/activate
    pip install -r requirements.txt
    ```
 
+3. **Compile the Baseline Payload (Windows)**
+   ```powershell
+   cl.exe poc_injector.c
+   ```
+   *This creates `poc_injector.exe`, a standard CreateRemoteThread injection payload.*
+
 ## Usage
 
-### Testing on Linux (Mock Stream)
-If you are developing on Linux or macOS, you can simulate a live ETW session using the included samples:
-```bash
-python main.py --mock samples/mutated_kp.json
+ETWScope uses a single, powerful unified command: `capture`.
+
+```powershell
+python main.py capture --silketw "C:\Path\To\SilkETW.exe" --provider Microsoft-Windows-Kernel-Process --filter-pid <OPTIONAL_PID> --payload-i1 poc_injector.exe --payload-i2 mutated_direct.exe --payload-i3 mutated_indirect.exe --payload-i4 hwbp.exe
 ```
 
-### Future Windows Deployment
-To run on a live Windows machine, compile the backend targeting Windows (`cargo build --target x86_64-pc-windows-msvc`) and remove the `--mock` flag from the invocation.
+### Live Measurement Workflow:
+1. **Phase 1: Learning.** When the tool starts, it passively listens to the ETW stream. Let it run for ~10 seconds to learn the background noise of the operating system.
+2. **Phase 2: Lock & Monitor.** Press `SPACEBAR`. The tool locks the baseline and begins actively searching for Ignored Telemetry Deviations.
+3. **Phase 3: Active Injection.** 
+   - Press `1` to inject the baseline payload (`poc_injector.exe`). The measurement console will show standard visibility.
+   - Press `2`, `3`, or `4` to inject your advanced STCMF payloads. Watch the Telemetry Ignorance score spike as the payloads bypass the ETW filters.
 
-## Roadmap
-- Machine Learning Anomaly Detection
-- Graph database backend for visualization
-- Full native Sigma rule conversion
-- Distributed telemetry collection agents
+## Academic Context
+This framework acts as the empirical measurement engine for the Secure Telemetry-Driven Code Mutation Framework (STCMF). By mathematically quantifying Telemetry Ignorance, it proves that current EDR solutions suffer from structural blindspots at the telemetry extraction layer, not just the heuristic layer.

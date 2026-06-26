@@ -188,55 +188,61 @@ class ETWScopeCaptureApp(App):
         import sys
         import ctypes
 
-        # -- Check admin privileges (SilkETW requires them for ETW sessions) --
-        is_admin = False
-        if sys.platform == "win32":
-            try:
-                is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
-            except Exception:
-                is_admin = False
-            if not is_admin:
-                log_panel.write_line("[bold red][WARN] NOT RUNNING AS ADMINISTRATOR![/bold red]")
-                log_panel.write_line("[bold red]   -> SilkETW requires admin privileges to create ETW sessions.[/bold red]")
-                log_panel.write_line("[bold yellow]   -> Right-click your terminal and select 'Run as Administrator'.[/bold yellow]")
+        proc = None
+        if self.log_file:
+            temp_log = self.log_file
+            log_panel.write_line(f"[*] Tailing existing log file -> {temp_log}")
+            log_panel.write_line("[*] Assuming SilkETW is being managed externally.")
+        else:
+            # -- Check admin privileges (SilkETW requires them for ETW sessions) --
+            is_admin = False
+            if sys.platform == "win32":
+                try:
+                    is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+                except Exception:
+                    is_admin = False
+                if not is_admin:
+                    log_panel.write_line("[bold red][WARN] NOT RUNNING AS ADMINISTRATOR![/bold red]")
+                    log_panel.write_line("[bold red]   -> SilkETW requires admin privileges to create ETW sessions.[/bold red]")
+                    log_panel.write_line("[bold yellow]   -> Right-click your terminal and select 'Run as Administrator'.[/bold yellow]")
 
-        temp_log = os.path.join(
-            tempfile.gettempdir(),
-            f"etwscope_live_{int(time.time())}.json"
-        )
-
-        log_panel.write_line(f"[*] Starting SilkETW -> {temp_log}")
-
-        cmd = [
-            self.silketw_path,
-            "-t", "user",
-            "-pn", self.provider,
-            "-ot", "file",
-            "-p", temp_log
-        ]
-        log_panel.write_line(f"[*] CMD: {' '.join(cmd)}")
-
-        kwargs = {}
-        if sys.platform == "win32":
-            # 0x10 = CREATE_NEW_CONSOLE. SilkETW uses System.Console.GetBufferInfo()
-            # to draw its event counter. If we pipe stdout, it crashes.
-            # This will spawn a small separate window for SilkETW.
-            kwargs["creationflags"] = 0x00000010
-
-        try:
-            proc = subprocess.Popen(
-                cmd, **kwargs
+            temp_log = os.path.join(
+                tempfile.gettempdir(),
+                f"etwscope_live_{int(time.time())}.json"
             )
-        except FileNotFoundError:
-            log_panel.write_line(f"[bold red][!] SilkETW not found at: {self.silketw_path}[/bold red]")
-            log_panel.write_line("[!] Check the --silketw path and try again.")
-            proc = None
-        except Exception as e:
-            log_panel.write_line(f"[bold red][!] Failed to start SilkETW: {e}[/bold red]")
-            proc = None
 
-        log_panel.write_line("[*] Waiting 5 seconds for ETW session to initialize...")
-        await asyncio.sleep(5)
+            log_panel.write_line(f"[*] Starting SilkETW -> {temp_log}")
+
+            cmd = [
+                self.silketw_path,
+                "-t", "user",
+                "-pn", self.provider,
+                "-ot", "file",
+                "-p", temp_log
+            ]
+            log_panel.write_line(f"[*] CMD: {' '.join(cmd)}")
+
+            kwargs = {}
+            if sys.platform == "win32":
+                # 0x10 = CREATE_NEW_CONSOLE. SilkETW uses System.Console.GetBufferInfo()
+                # to draw its event counter. If we pipe stdout, it crashes.
+                # This will spawn a small separate window for SilkETW.
+                kwargs["creationflags"] = 0x00000010
+
+            try:
+                proc = subprocess.Popen(
+                    cmd, **kwargs
+                )
+            except FileNotFoundError:
+                log_panel.write_line(f"[bold red][!] SilkETW not found at: {self.silketw_path}[/bold red]")
+                log_panel.write_line("[!] Check the --silketw path and try again.")
+                proc = None
+            except Exception as e:
+                log_panel.write_line(f"[bold red][!] Failed to start SilkETW: {e}[/bold red]")
+                proc = None
+
+            log_panel.write_line("[*] Waiting 5 seconds for ETW session to initialize...")
+            await asyncio.sleep(5)
 
         # -- Check if SilkETW survived the startup --
         if proc and proc.poll() is not None:
@@ -275,25 +281,38 @@ class ETWScopeCaptureApp(App):
                 try:
                     if os.path.exists(temp_log):
                         with open(temp_log, 'r', encoding='utf-8', errors='ignore') as f:
-                            content = f.read()
-
-                        if len(content) > last_pos:
-                            new_content = content[last_pos:]
-                            last_pos = len(content)
-
-                            # Parse JSON objects from new content
-                            for line in new_content.splitlines():
-                                line = line.strip().rstrip(',').strip('[').strip(']')
-                                if line.startswith('{'):
-                                    try:
-                                        raw = json.loads(line)
-                                        event = _normalise_event(raw)
-                                        if event:
-                                            new_events.append(event)
-                                    except json.JSONDecodeError:
-                                        continue
-                except Exception:
-                    pass
+                            # Seek to the last read position
+                            f.seek(last_pos)
+                            new_content = f.read()
+                            
+                            if new_content:
+                                last_pos = f.tell()
+                                
+                                # SilkETW might write arrays or objects
+                                for line in new_content.splitlines():
+                                    line = line.strip().rstrip(',').strip('[').strip(']')
+                                    if line.startswith('{'):
+                                        try:
+                                            # Handle potential multiple JSON objects on one line if formatting gets weird
+                                            # or just standard newline delimited
+                                            parts = line.split('}{')
+                                            for i, part in enumerate(parts):
+                                                if len(parts) > 1:
+                                                    if i == 0:
+                                                        part = part + '}'
+                                                    elif i == len(parts) - 1:
+                                                        part = '{' + part
+                                                    else:
+                                                        part = '{' + part + '}'
+                                                        
+                                                raw = json.loads(part)
+                                                event = _normalise_event(raw)
+                                                if event:
+                                                    new_events.append(event)
+                                        except json.JSONDecodeError:
+                                            continue
+                except Exception as e:
+                    log_panel.write_line(f"[!] Error reading log: {e}")
 
                 # Process new events
                 for event in new_events:

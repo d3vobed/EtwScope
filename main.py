@@ -28,8 +28,9 @@ def run_capture(args):
     """Launch the unified active capture terminal interface."""
     from frontend.app import ETWScopeCaptureApp
     app = ETWScopeCaptureApp(
-        silketw_path=args.silketw,
         provider=args.provider,
+        silketw_path=args.silketw,
+        log_file=args.log_file,
         baseline_path=args.baseline,
         pid_filter=args.filter_pid,
         payload_i1=args.payload_i1,
@@ -188,8 +189,10 @@ def main():
     cap = subparsers.add_parser(
         "capture",
         help="Live ETW capture with real-time injection and measurement")
-    cap.add_argument("--silketw", required=True,
-                     help="Path to SilkETW.exe")
+    cap.add_argument("--silketw",
+                     help="Path to SilkETW.exe (if launching from python)")
+    cap.add_argument("--log-file",
+                     help="Path to existing SilkETW JSON log (if running SilkETW externally)")
     cap.add_argument("--provider", required=True,
                      help="ETW Provider (e.g. Microsoft-Windows-Kernel-Process)")
     cap.add_argument("--filter-pid",

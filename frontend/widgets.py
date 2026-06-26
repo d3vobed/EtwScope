@@ -1,6 +1,6 @@
 from textual.widget import Widget
 from textual.app import ComposeResult
-from textual.widgets import Static, DataTable, Log, Tree
+from textual.widgets import Static, DataTable, Log, RichLog, Tree
 from textual.containers import Container
 
 
@@ -33,18 +33,24 @@ class AlertLog(Log):
         self.max_lines = 500
 
 
-class MeasurementConsole(Log):
-    """Real-time technical measurement and logging console."""
+class MeasurementConsole(RichLog):
+    """Real-time technical measurement and logging console with Rich markup."""
 
     def __init__(self, *args, **kwargs):
+        kwargs.setdefault('markup', True)
+        kwargs.setdefault('wrap', True)
         super().__init__(*args, **kwargs)
         self.max_lines = 1000
 
     def on_mount(self) -> None:
-        self.write_line("[*] Active Measurement Console Initialized")
+        self.write("[*] Active Measurement Console Initialized")
+
+    def write_line(self, msg: str):
+        """Compatibility wrapper: write a line with Rich markup support."""
+        self.write(msg)
 
     def log_evasion(self, msg: str):
-        self.write_line(msg)
+        self.write(msg)
 
     def show_categories(self, categories: dict):
         """Display a full breakdown of ignored telemetry layers."""

@@ -186,6 +186,19 @@ class ETWScopeCaptureApp(App):
         import tempfile
         import subprocess
         import sys
+        import ctypes
+
+        # -- Check admin privileges (SilkETW requires them for ETW sessions) --
+        is_admin = False
+        if sys.platform == "win32":
+            try:
+                is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+            except Exception:
+                is_admin = False
+            if not is_admin:
+                log_panel.write_line("[bold red][WARN] NOT RUNNING AS ADMINISTRATOR![/bold red]")
+                log_panel.write_line("[bold red]   -> SilkETW requires admin privileges to create ETW sessions.[/bold red]")
+                log_panel.write_line("[bold yellow]   -> Right-click your terminal and select 'Run as Administrator'.[/bold yellow]")
 
         temp_log = os.path.join(
             tempfile.gettempdir(),
@@ -201,6 +214,7 @@ class ETWScopeCaptureApp(App):
             "-ot", "file",
             "-p", temp_log
         ]
+        log_panel.write_line(f"[*] CMD: {' '.join(cmd)}")
 
         kwargs = {}
         if sys.platform == "win32":
@@ -211,16 +225,45 @@ class ETWScopeCaptureApp(App):
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, **kwargs
             )
+        except FileNotFoundError:
+            log_panel.write_line(f"[bold red][!] SilkETW not found at: {self.silketw_path}[/bold red]")
+            log_panel.write_line("[!] Check the --silketw path and try again.")
+            proc = None
         except Exception as e:
-            log_panel.write_line(f"[!] Failed to start SilkETW: {e}")
-            log_panel.write_line("[!] Falling back to file-tail mode...")
+            log_panel.write_line(f"[bold red][!] Failed to start SilkETW: {e}[/bold red]")
             proc = None
 
         log_panel.write_line("[*] Waiting 5 seconds for ETW session to initialize...")
         await asyncio.sleep(5)
-        log_panel.write_line("\n[bold blue][OK] Live capture started. LEARNING BASELINE...[/bold blue]")
+
+        # -- Check if SilkETW survived the startup --
+        if proc and proc.poll() is not None:
+            exit_code = proc.returncode
+            stderr_out = ""
+            stdout_out = ""
+            try:
+                stdout_out = proc.stdout.read()
+                stderr_out = proc.stderr.read()
+            except Exception:
+                pass
+            log_panel.write_line(f"[bold red][!] SilkETW exited during startup (exit code: {exit_code})[/bold red]")
+            if stderr_out:
+                for line in stderr_out.strip().splitlines()[:10]:
+                    log_panel.write_line(f"[red]   STDERR: {line}[/red]")
+            if stdout_out:
+                for line in stdout_out.strip().splitlines()[:10]:
+                    log_panel.write_line(f"[yellow]   STDOUT: {line}[/yellow]")
+            if not is_admin:
+                log_panel.write_line("[bold yellow]   -> This is likely because you need Administrator privileges.[/bold yellow]")
+            log_panel.write_line("[*] Continuing in monitoring mode (no live ETW feed)...")
+            proc = None
+
+        if proc:
+            log_panel.write_line("[bold green][OK] SilkETW is running. Live capture active. LEARNING BASELINE...[/bold green]")
+        else:
+            log_panel.write_line("[bold yellow][OK] Running without SilkETW. You can still inject payloads to test.[/bold yellow]")
         log_panel.write_line("[*] Let the system run normally to build a profile.")
-        log_panel.write_line("[*] [italic]Press SPACEBAR when ready to start Active Capture.[/italic]")
+        log_panel.write_line("[*] Press [bold]SPACEBAR[/bold] when ready to start Active Capture.")
 
         # Tail the JSON file for new events
         from analysis.metrics import _normalise_event
@@ -233,8 +276,17 @@ class ETWScopeCaptureApp(App):
             while True:
                 # Check if process died
                 if proc and proc.poll() is not None:
-                    log_panel.write_line("[!] SilkETW process exited unexpectedly.")
-                    break
+                    stderr_msg = ""
+                    try:
+                        stderr_msg = proc.stderr.read()
+                    except Exception:
+                        pass
+                    log_panel.write_line("[bold red][!] SilkETW process exited unexpectedly.[/bold red]")
+                    if stderr_msg:
+                        for errline in stderr_msg.strip().splitlines()[:5]:
+                            log_panel.write_line(f"[red]   STDERR: {errline}[/red]")
+                    proc = None
+                    # Don't break — keep the UI alive so user can still interact
 
                 # Read new content from the file
                 new_events = []

@@ -4,39 +4,29 @@ REM ETWScope - Headless Analysis with CSV Export
 REM Compares your existing SilkETW JSON logs and exports TRS results to CSV.
 REM ==============================================================================
 
-set RESULTS=C:\Users\zerolapsintelli\Desktop\final
-set BASELINE=%RESULTS%\clean_00_kp.json
+set RESULTS=C:\Users\Administrator\AppData\Local\Temp
+set BASELINE=%RESULTS%\etwscope_live_1782496315.json
 
 echo [*] ETWScope Headless Telemetry Analysis
 echo [*] Exporting results to: %RESULTS%\etwscope_results.csv
 echo.
 
-echo === Analyzing Intensity 1 (Win32 API) ===
+echo === Analyzing Intensity 1 (from Temp Capture) ===
 python .\main.py analyze ^
   --baseline "%BASELINE%" ^
-  --mutated "%RESULTS%\mut_I1_kp.json" ^
+  --mutated "%RESULTS%\etwscope_live_1782496823.json" ^
   --provider "Microsoft-Windows-Kernel-Process" ^
   --export "%RESULTS%\etwscope_results.csv"
 
 echo.
-echo === Analyzing Intensity 2 (Direct Syscall) ===
+echo === Analyzing Intensity 2 (from Temp Capture) ===
 python .\main.py analyze ^
   --baseline "%BASELINE%" ^
-  --mutated "%RESULTS%\mut_I2_kp.json" ^
-  --provider "Microsoft-Windows-Kernel-Process" ^
-  --export "%RESULTS%\etwscope_results.csv"
-
-echo.
-echo === Analyzing Intensity 3 (Indirect Syscall) ===
-python .\main.py analyze ^
-  --baseline "%BASELINE%" ^
-  --mutated "%RESULTS%\mut_I3_kp.json" ^
+  --mutated "%RESULTS%\etwscope_live_1782497450.json" ^
   --provider "Microsoft-Windows-Kernel-Process" ^
   --export "%RESULTS%\etwscope_results.csv"
 
 echo.
 echo [*] Done! Results exported to: %RESULTS%\etwscope_results.csv
-echo [*] You can also run the batch DDF fitting:
-echo     python .\main.py batch --baseline "%BASELINE%" --mutated-dir "%RESULTS%\mutated_kp" --export "%RESULTS%\ddf_results.csv"
 
 pause

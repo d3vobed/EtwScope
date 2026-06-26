@@ -218,12 +218,14 @@ class ETWScopeCaptureApp(App):
 
         kwargs = {}
         if sys.platform == "win32":
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+            # 0x10 = CREATE_NEW_CONSOLE. SilkETW uses System.Console.GetBufferInfo()
+            # to draw its event counter. If we pipe stdout, it crashes.
+            # This will spawn a small separate window for SilkETW.
+            kwargs["creationflags"] = 0x00000010
 
         try:
             proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, **kwargs
+                cmd, **kwargs
             )
         except FileNotFoundError:
             log_panel.write_line(f"[bold red][!] SilkETW not found at: {self.silketw_path}[/bold red]")
@@ -239,17 +241,8 @@ class ETWScopeCaptureApp(App):
         # -- Check if SilkETW survived the startup --
         if proc and proc.poll() is not None:
             exit_code = proc.returncode
-            stderr_out = ""
-            stdout_out = ""
-            try:
-                stdout_out = proc.stdout.read()
-                stderr_out = proc.stderr.read()
-            except Exception:
-                pass
             log_panel.write_line(f"[bold red][!] SilkETW exited during startup (exit code: {exit_code})[/bold red]")
-            if stderr_out:
-                for line in stderr_out.strip().splitlines()[:10]:
-                    log_panel.write_line(f"[red]   STDERR: {line}[/red]")
+            log_panel.write_line("[red]   -> SilkETW's console window likely flashed and closed.[/red]")
             if stdout_out:
                 for line in stdout_out.strip().splitlines()[:10]:
                     log_panel.write_line(f"[yellow]   STDOUT: {line}[/yellow]")
@@ -276,15 +269,7 @@ class ETWScopeCaptureApp(App):
             while True:
                 # Check if process died
                 if proc and proc.poll() is not None:
-                    stderr_msg = ""
-                    try:
-                        stderr_msg = proc.stderr.read()
-                    except Exception:
-                        pass
                     log_panel.write_line("[bold red][!] SilkETW process exited unexpectedly.[/bold red]")
-                    if stderr_msg:
-                        for errline in stderr_msg.strip().splitlines()[:5]:
-                            log_panel.write_line(f"[red]   STDERR: {errline}[/red]")
                     proc = None
                     # Don't break — keep the UI alive so user can still interact
 

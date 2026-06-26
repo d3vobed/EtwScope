@@ -243,9 +243,6 @@ class ETWScopeCaptureApp(App):
             exit_code = proc.returncode
             log_panel.write_line(f"[bold red][!] SilkETW exited during startup (exit code: {exit_code})[/bold red]")
             log_panel.write_line("[red]   -> SilkETW's console window likely flashed and closed.[/red]")
-            if stdout_out:
-                for line in stdout_out.strip().splitlines()[:10]:
-                    log_panel.write_line(f"[yellow]   STDOUT: {line}[/yellow]")
             if not is_admin:
                 log_panel.write_line("[bold yellow]   -> This is likely because you need Administrator privileges.[/bold yellow]")
             log_panel.write_line("[*] Continuing in monitoring mode (no live ETW feed)...")

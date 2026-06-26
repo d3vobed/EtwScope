@@ -322,6 +322,16 @@ class ETWScopeCaptureApp(App):
                     risk, color, note = self.detector.classify_event(event)
                     self._all_events_raw.append((event, risk, color, note))
 
+                    # Apply UI search filter
+                    if self._filter_term:
+                        f_term = self._filter_term
+                        ev_name = str(event.get("event_name", "")).lower()
+                        prov_name = str(event.get("provider_name", "")).lower()
+                        pid_val = str(event.get("pid", "")).lower()
+                        
+                        if f_term not in ev_name and f_term not in prov_name and f_term not in pid_val:
+                            continue
+
                     live_grid.add_live_event(event, risk, color, note)
 
                 # Update header every 10 iterations

@@ -371,4 +371,37 @@ class ETWScopeCaptureApp(App):
             log_panel.write_line(f"  Unique PIDs:      {stats['unique_pids']}")
             log_panel.write_line(f"  Event Types:      {stats['unique_event_types']}")
             log_panel.write_line(f"  Final TRS:        {final_trs['trs']:.4f}")
-            log_panel.write_line(f"  EDR Visibility:   {final_trs['visibility_pct']:.1f}%")
+            log_panel.write_line(f"  Telemetry Ignorance: {100.0 - final_trs['visibility_pct']:.1f}%")
+
+            # Auto-export CSV with session results
+            try:
+                import csv
+                csv_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                        "..", "etwscope_capture_results.csv")
+                csv_path = os.path.normpath(csv_path)
+                file_exists = os.path.exists(csv_path)
+                with open(csv_path, 'a', newline='') as csvfile:
+                    writer = csv.writer(csvfile)
+                    if not file_exists:
+                        writer.writerow([
+                            "timestamp", "provider", "total_events", "normal",
+                            "suspicious", "critical", "unique_pids",
+                            "event_types", "trs", "visibility_pct",
+                            "telemetry_ignorance_pct"
+                        ])
+                    writer.writerow([
+                        time.strftime("%Y-%m-%d %H:%M:%S"),
+                        self.provider,
+                        stats['total'],
+                        stats['normal'],
+                        stats['suspicious'],
+                        stats['critical'],
+                        stats['unique_pids'],
+                        stats['unique_event_types'],
+                        f"{final_trs['trs']:.4f}",
+                        f"{final_trs['visibility_pct']:.1f}",
+                        f"{100.0 - final_trs['visibility_pct']:.1f}",
+                    ])
+                log_panel.write_line(f"\n[bold green][OK] Results exported to: {csv_path}[/bold green]")
+            except Exception as e:
+                log_panel.write_line(f"[!] CSV export failed: {e}")

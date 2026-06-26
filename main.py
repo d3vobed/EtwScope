@@ -1,65 +1,58 @@
 """ETWScope -- Active Telemetry Ignorance Measurement Framework.
 
-Usage Mode:
-  Capture (Live ETW Capture + Payload Injection + Real-time Measurement):
-    python main.py capture --silketw SilkETW.exe --provider Microsoft-Windows-Kernel-Process --payload-i1 poc_injector.exe
+Usage Modes:
+  capture  : Live ETW capture + payload injection + real-time measurement
+  analyze  : Headless batch comparison of baseline vs mutated JSON logs
+
+Examples:
+  python main.py capture --silketw SilkETW.exe --provider Microsoft-Windows-Kernel-Process
+  python main.py analyze --baseline clean.json --mutated mut_I1.json
 """
 import argparse
 import sys
 import os
 import json
 
-# Ensure the local modules can be imported
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from analysis.metrics import load_events_from_file, compute_metrics_from_events
 from analysis.trs import TRSEngine, fit_ddf
 from analysis.diff_engine import diff_telemetry
 from analysis.exporter import export_csv, export_json, export_terminal_report
-from analysis.orchestrator import Orchestrator
 
 
-def run_live(args):
-    """Launch live streaming TUI with backend."""
-    from frontend.app import ETWScopeApp
-    cmd = f"{args.backend} --mock {args.mock}"
-    app = ETWScopeApp(backend_cmd=cmd, rules_dir="rules")
-    app.run()
-
-
-def run_analyze(args):
-    """Launch TUI in analysis mode. If payload is provided, runs the orchestrator lifecycle first."""
-    
-    # If payload is provided, this triggers the Orchestrator within the TUI
-    if hasattr(args, 'payload') and args.payload:
-        args.mutated = args.out
-        if hasattr(args, 'target_pid') and args.target_pid:
-            args.pid = args.target_pid
-        orchestrator_args = args
-    else:
-        orchestrator_args = None
-
-    from frontend.app import ETWScopeAnalyzeApp
-    app = ETWScopeAnalyzeApp(
+# ---------------------------------------------------------------------------
+# Mode: capture  (unified live TUI)
+# ---------------------------------------------------------------------------
+def run_capture(args):
+    """Launch the unified active capture terminal interface."""
+    from frontend.app import ETWScopeCaptureApp
+    app = ETWScopeCaptureApp(
+        silketw_path=args.silketw,
+        provider=args.provider,
         baseline_path=args.baseline,
-        mutated_path=args.mutated,
-        pid_filter=args.pid,
-        provider_filter=args.provider,
-        orchestrator_args=orchestrator_args
+        pid_filter=args.filter_pid,
+        payload_i1=args.payload_i1,
+        payload_i2=args.payload_i2,
+        payload_i3=args.payload_i3,
+        payload_i4=args.payload_i4,
     )
     app.run()
 
 
-def run_diff(args):
-    """Headless batch comparison — outputs TRS, diff, and evasion analysis."""
+# ---------------------------------------------------------------------------
+# Mode: analyze  (headless single comparison)
+# ---------------------------------------------------------------------------
+def run_analyze(args):
+    """Headless batch comparison -- outputs TRS, diff, and evasion analysis."""
     print(f"[*] Loading baseline: {args.baseline}")
-    base_events = load_events_from_file(args.baseline, pid_filter=args.pid,
-                                         provider_filter=args.provider)
+    base_events = load_events_from_file(
+        args.baseline, pid_filter=args.pid, provider_filter=args.provider)
     print(f"    -> {len(base_events)} events loaded")
 
     print(f"[*] Loading mutated:  {args.mutated}")
-    mut_events = load_events_from_file(args.mutated, pid_filter=args.pid,
-                                        provider_filter=args.provider)
+    mut_events = load_events_from_file(
+        args.mutated, pid_filter=args.pid, provider_filter=args.provider)
     print(f"    -> {len(mut_events)} events loaded")
 
     base_metrics = compute_metrics_from_events(base_events)
@@ -77,10 +70,8 @@ def run_diff(args):
         "mutated_file": os.path.basename(args.mutated),
     }
 
-    # Print terminal report
     print(export_terminal_report(full_report))
 
-    # Export if requested
     if args.export:
         row = {
             "baseline_file": os.path.basename(args.baseline),
@@ -104,15 +95,17 @@ def run_diff(args):
         export_json(args.json_out, full_report)
 
 
+# ---------------------------------------------------------------------------
+# Mode: batch  (multi-file DDF curve fitting)
+# ---------------------------------------------------------------------------
 def run_batch(args):
     """Compare baseline against multiple mutated files for DDF curve fitting."""
     print(f"[*] Batch mode: Loading baseline {args.baseline}")
-    base_events = load_events_from_file(args.baseline, pid_filter=args.pid,
-                                         provider_filter=args.provider)
+    base_events = load_events_from_file(
+        args.baseline, pid_filter=args.pid, provider_filter=args.provider)
     base_metrics = compute_metrics_from_events(base_events)
     print(f"    -> {len(base_events)} baseline events")
 
-    # Find all mutated JSON files in the directory
     mut_dir = args.mutated_dir
     mut_files = sorted([f for f in os.listdir(mut_dir)
                         if f.endswith('.json') and not f.startswith('.')])
@@ -131,8 +124,8 @@ def run_batch(args):
 
     for i, mf in enumerate(mut_files):
         filepath = os.path.join(mut_dir, mf)
-        mut_events = load_events_from_file(filepath, pid_filter=args.pid,
-                                            provider_filter=args.provider)
+        mut_events = load_events_from_file(
+            filepath, pid_filter=args.pid, provider_filter=args.provider)
         mut_metrics = compute_metrics_from_events(mut_events)
         trs_report = trs_engine.compute_full_report(base_metrics, mut_metrics)
         diff_report = diff_telemetry(base_events, mut_events)
@@ -160,14 +153,12 @@ def run_batch(args):
             "evasion_categories": diff_report["evasion_categories"],
         })
 
-    # Fit DDF
     ddf = fit_ddf(trs_values)
     print(f"\n[*] Detection Decay Function (DDF) Fit:")
     print(f"    TRS(I) = {ddf['trs_max']:.4f} * e^(-{ddf['lambda']:.4f} * I) + {ddf['epsilon']:.4f}")
-    print(f"    R² = {ddf['r_squared']:.4f}")
+    print(f"    R^2 = {ddf['r_squared']:.4f}")
     print(f"    Asymptotic Floor (epsilon) = {ddf['epsilon']:.4f}")
 
-    # Add DDF to all rows
     for row in all_rows:
         row["ddf"] = ddf
 
@@ -182,9 +173,9 @@ def run_batch(args):
         })
 
 
-
-
-
+# ---------------------------------------------------------------------------
+# CLI Parser
+# ---------------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(
         description="ETWScope: Active Telemetry Ignorance Measurement Framework",
@@ -193,33 +184,78 @@ def main():
     )
     subparsers = parser.add_subparsers(dest="mode", help="Operating mode")
 
-    # Capture mode (Unified Live Capture + Injection)
-    cap_p = subparsers.add_parser("capture", help="Start ETWScope unified terminal capture interface")
-    cap_p.add_argument("--silketw", required=True, help="Path to SilkETW.exe")
-    cap_p.add_argument("--provider", required=True,
-                       help="ETW Provider Name (e.g. Microsoft-Windows-Kernel-Process)")
-    cap_p.add_argument("--filter-pid", help="Filter capture to a specific PID (optional)")
-    cap_p.add_argument("--baseline", help="Optional baseline JSON for reference comparison")
-    cap_p.add_argument("--payload-i1", help="Path to Intensity 1 payload (e.g., standard injection)")
-    cap_p.add_argument("--payload-i2", help="Path to Intensity 2 payload (e.g., Direct Syscalls)")
-    cap_p.add_argument("--payload-i3", help="Path to Intensity 3 payload (e.g., Indirect Syscalls)")
-    cap_p.add_argument("--payload-i4", help="Path to Intensity 4 payload (e.g., HWBP Unhooking)")
+    # -- capture -----------------------------------------------------------
+    cap = subparsers.add_parser(
+        "capture",
+        help="Live ETW capture with real-time injection and measurement")
+    cap.add_argument("--silketw", required=True,
+                     help="Path to SilkETW.exe")
+    cap.add_argument("--provider", required=True,
+                     help="ETW Provider (e.g. Microsoft-Windows-Kernel-Process)")
+    cap.add_argument("--filter-pid",
+                     help="Optional: filter capture to a specific PID")
+    cap.add_argument("--baseline",
+                     help="Optional: baseline JSON for reference comparison")
+    cap.add_argument("--payload-i1",
+                     help="Intensity 1 payload (Win32 API baseline)")
+    cap.add_argument("--payload-i2",
+                     help="Intensity 2 payload (Direct Syscalls)")
+    cap.add_argument("--payload-i3",
+                     help="Intensity 3 payload (Indirect Syscalls)")
+    cap.add_argument("--payload-i4",
+                     help="Intensity 4 payload (HWBP Unhooking)")
+
+    # -- analyze -----------------------------------------------------------
+    ana = subparsers.add_parser(
+        "analyze",
+        help="Headless comparison of baseline vs mutated JSON logs")
+    ana.add_argument("--baseline", required=True,
+                     help="Baseline ETW JSON log")
+    ana.add_argument("--mutated", required=True,
+                     help="Mutated ETW JSON log")
+    ana.add_argument("--pid",
+                     help="Filter by PID")
+    ana.add_argument("--provider",
+                     help="Filter by ETW provider name")
+    ana.add_argument("--w1", type=float, default=0.45,
+                     help="TRS weight for volume (default: 0.45)")
+    ana.add_argument("--w2", type=float, default=0.35,
+                     help="TRS weight for entropy (default: 0.35)")
+    ana.add_argument("--w3", type=float, default=0.20,
+                     help="TRS weight for timing (default: 0.20)")
+    ana.add_argument("--export",
+                     help="Export results to CSV file")
+    ana.add_argument("--json-out",
+                     help="Export full report as JSON")
+
+    # -- batch -------------------------------------------------------------
+    bat = subparsers.add_parser(
+        "batch",
+        help="Compare baseline against a directory of mutated logs (DDF fitting)")
+    bat.add_argument("--baseline", required=True,
+                     help="Baseline ETW JSON log")
+    bat.add_argument("--mutated-dir", required=True,
+                     help="Directory of mutated JSON logs")
+    bat.add_argument("--pid",
+                     help="Filter by PID")
+    bat.add_argument("--provider",
+                     help="Filter by ETW provider name")
+    bat.add_argument("--w1", type=float, default=0.45)
+    bat.add_argument("--w2", type=float, default=0.35)
+    bat.add_argument("--w3", type=float, default=0.20)
+    bat.add_argument("--export",
+                     help="Export results to CSV file")
+    bat.add_argument("--json-out",
+                     help="Export full report as JSON")
 
     args = parser.parse_args()
 
     if args.mode == "capture":
-        from frontend.app import ETWScopeCaptureApp
-        app = ETWScopeCaptureApp(
-            silketw_path=args.silketw,
-            provider=args.provider,
-            baseline_path=args.baseline,
-            pid_filter=args.filter_pid,
-            payload_i1=args.payload_i1,
-            payload_i2=args.payload_i2,
-            payload_i3=args.payload_i3,
-            payload_i4=args.payload_i4,
-        )
-        app.run()
+        run_capture(args)
+    elif args.mode == "analyze":
+        run_analyze(args)
+    elif args.mode == "batch":
+        run_batch(args)
     else:
         parser.print_help()
 
